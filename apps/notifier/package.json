@@ -1,0 +1,25 @@
+{
+  "name": "@webhook-noti/notifier",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "lint": "tsc --noEmit -p tsconfig.json && oxlint --type-aware source",
+    "start": "node --import tsx source/main.ts",
+    "dev": "tsx watch source/main.ts",
+    "debug": "node --inspect --import tsx source/main.ts"
+  },
+  "dependencies": {
+    "@octokit/rest": "^22.0.0",
+    "@octokit/webhooks": "^14.1.0",
+    "@webhook-noti/core": "workspace:*",
+    "discord.js": "^14.22.1",
+    "node-telegram-bot-api": "^0.66.0",
+    "sql.js": "^1.14.2",
+    "tsx": "^4.20.5"
+  },
+  "devDependencies": {
+    "@types/node-telegram-bot-api": "^0.64.9",
+    "@types/sql.js": "^1.4.11"
+  }
+}

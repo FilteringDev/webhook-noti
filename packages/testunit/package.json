@@ -1,0 +1,16 @@
+{
+  "name": "@webhook-noti/testunit",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "lint": "tsc --noEmit -p tsconfig.json && oxlint --type-aware tests",
+    "test": "node --import tsx --test tests/**/*.test.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.5"
+  },
+  "dependencies": {
+    "@webhook-noti/core": "workspace:*"
+  }
+}

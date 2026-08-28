@@ -1,0 +1,21 @@
+{
+  "name": "webhook-noti",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.24.0",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "debug": "pnpm --filter @webhook-noti/notifier run debug",
+    "dev": "pnpm --filter @webhook-noti/notifier run dev",
+    "lint": "pnpm -r --if-present run lint",
+    "test": "pnpm --filter @webhook-noti/testunit run test"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "oxlint": "^1.17.0",
+    "oxlint-tsgolint": "^7.0.2001",
+    "typescript": "^5.9.2"
+  }
+}

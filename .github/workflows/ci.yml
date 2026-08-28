@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: ['**']
+
+jobs:
+  verify:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/setup@v2
+        with:
+          runtime: 'node@lts'
+      - run: pnpm install --lockfile=false
+      - run: pnpm lint
+      - run: pnpm test
+      - run: docker buildx build --platform linux/amd64 --load -t webhook-noti:ci .

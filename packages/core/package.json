@@ -1,0 +1,15 @@
+{
+  "name": "@webhook-noti/core",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./source/index.ts",
+      "default": "./source/index.ts"
+    }
+  },
+  "scripts": {
+    "lint": "tsc --noEmit -p tsconfig.json && oxlint --type-aware source"
+  }
+}
