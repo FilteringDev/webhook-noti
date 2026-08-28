@@ -2,5 +2,6 @@ node_modules
 dist
 .buildcache
 .env
+secrets/
 data
 coverage

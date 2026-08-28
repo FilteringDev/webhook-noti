@@ -42,8 +42,8 @@ const ReleaseFromPayload = (Payload: unknown): Release | null => {
 const Config = GetEnvironment()
 const Database = await NotifierDatabase.Open(Config.DataDirectory)
 const Notifiers = new Map<Release['Repository'] extends never ? never : 'discord' | 'telegram', PlatformNotifier>()
-if (Config.DiscordToken !== undefined) Notifiers.set('discord', CreateDiscord(Config.DiscordToken, Database, Config.AllowedRepositories))
-if (Config.TelegramToken !== undefined) Notifiers.set('telegram', CreateTelegram(Config.TelegramToken, Database, Config.AllowedRepositories))
+if (Config.DiscordToken !== undefined) Notifiers.set('discord', CreateDiscord(Config.DiscordToken, Database, Config.Repositories))
+if (Config.TelegramToken !== undefined) Notifiers.set('telegram', CreateTelegram(Config.TelegramToken, Database, Config.Repositories))
 const WebhooksClient = new Webhooks({ secret: Config.GithubWebhookSecret })
 const ResolveReference = GithubReferenceResolver(Config.GithubToken)
 

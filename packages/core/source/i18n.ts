@@ -8,6 +8,7 @@ const Messages = {
     dmEnabled: 'Direct messages enabled.',
     dmDisabled: 'Direct messages disabled.',
     forbidden: 'You do not have permission to configure this destination.',
+    selectionExpired: 'This repository selection has expired. Run the command again.',
     repositoryDenied: 'This repository is not allowed.',
     invalidRepository: 'Use owner/repository.',
     failed: 'The request could not be completed.'
@@ -19,6 +20,7 @@ const Messages = {
     dmEnabled: 'DM 알림을 켰습니다.',
     dmDisabled: 'DM 알림을 껐습니다.',
     forbidden: '이 대상을 설정할 권한이 없습니다.',
+    selectionExpired: '저장소 선택이 만료되었습니다. 명령을 다시 실행하세요.',
     repositoryDenied: '이 저장소는 허용되지 않았습니다.',
     invalidRepository: 'owner/repository 형식으로 입력하세요.',
     failed: '요청을 완료하지 못했습니다.'
