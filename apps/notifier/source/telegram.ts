@@ -1,58 +1,58 @@
-import { message, parseRepository, type Destination, type Language } from '@webhook-noti/core'
+import { Message, ParseRepository, type Destination, type Language } from '@webhook-noti/core'
 import TelegramBot from 'node-telegram-bot-api'
 import type { NotifierDatabase } from './database.js'
 import type { PlatformNotifier } from './delivery.js'
 
-const parseCommand = (text: string): { command: string, argument: string | undefined } => {
-  const [command = '', argument] = text.trim().split(/\s+/, 2)
-  return { command: command.replace(/@[^\s]+$/, '').toLowerCase(), argument }
+const ParseCommand = (Text: string): { Command: string, Argument: string | undefined } => {
+  const [Command = '', Argument] = Text.trim().split(/\s+/, 2)
+  return { Command: Command.replace(/@[^\s]+$/, '').toLowerCase(), Argument }
 }
 
-export const createTelegram = (token: string, database: NotifierDatabase, allowedRepositories: Set<string>): PlatformNotifier => {
-  const bot = new TelegramBot(token, { polling: true })
-  bot.on('message', async (update) => {
-    if (update.text === undefined || update.from === undefined) return
-    const { command, argument } = parseCommand(update.text)
-    if (!['/subscribe', '/unsubscribe', '/language', '/dm'].includes(command)) return
-    const language: Language = command === '/language'
-      ? argument === 'ko' ? 'ko' : 'en'
-      : database.languageFor('telegram', String(update.from.id))
-    const send = async (text: string): Promise<void> => { await bot.sendMessage(update.chat.id, text, { message_thread_id: update.message_thread_id }) }
-    if (command === '/language') {
-      database.setLanguage('telegram', String(update.from.id), language)
-      await send(message(language, 'languageSaved'))
+export const CreateTelegram = (Token: string, Database: NotifierDatabase, AllowedRepositories: Set<string>): PlatformNotifier => {
+  const Bot = new TelegramBot(Token, { polling: true })
+  Bot.on('message', async (Update) => {
+    if (Update.text === undefined || Update.from === undefined) return
+    const { Command, Argument } = ParseCommand(Update.text)
+    if (!['/subscribe', '/unsubscribe', '/language', '/dm'].includes(Command)) return
+    const Language: Language = Command === '/language'
+      ? Argument === 'ko' ? 'ko' : 'en'
+      : Database.LanguageFor('telegram', String(Update.from.id))
+    const Send = async (Text: string): Promise<void> => { await Bot.sendMessage(Update.chat.id, Text, { message_thread_id: Update.message_thread_id }) }
+    if (Command === '/language') {
+      Database.SetLanguage('telegram', String(Update.from.id), Language)
+      await Send(Message(Language, 'languageSaved'))
       return
     }
-    const repository = argument === undefined ? null : parseRepository(argument)
-    if (repository === null) {
-      await send(message(language, 'invalidRepository'))
+    const Repository = Argument === undefined ? null : ParseRepository(Argument)
+    if (Repository === null) {
+      await Send(Message(Language, 'invalidRepository'))
       return
     }
-    if (!allowedRepositories.has(`${repository.owner}/${repository.name}`)) {
-      await send(message(language, 'repositoryDenied'))
+    if (!AllowedRepositories.has(`${Repository.Owner}/${Repository.Name}`)) {
+      await Send(Message(Language, 'repositoryDenied'))
       return
     }
-    const directMessage = update.chat.type === 'private'
-    if (!directMessage) {
-      const administrators = await bot.getChatAdministrators(update.chat.id)
-      if (!administrators.some((administrator) => administrator.user.id === update.from?.id)) {
-        await send(message(language, 'forbidden'))
+    const DirectMessage = Update.chat.type === 'private'
+    if (!DirectMessage) {
+      const Administrators = await Bot.getChatAdministrators(Update.chat.id)
+      if (!Administrators.some((Administrator) => Administrator.user.id === Update.from?.id)) {
+        await Send(Message(Language, 'forbidden'))
         return
       }
     }
-    const externalId = String(update.chat.id)
-    const topicId = update.message_thread_id ?? null
-    if (command === '/unsubscribe') {
-      await send(message(language, database.removeDestination('telegram', externalId, repository, topicId) ? 'unsubscribed' : 'failed'))
+    const ExternalId = String(Update.chat.id)
+    const TopicId = Update.message_thread_id ?? null
+    if (Command === '/unsubscribe') {
+      await Send(Message(Language, Database.RemoveDestination('telegram', ExternalId, Repository, TopicId) ? 'unsubscribed' : 'failed'))
       return
     }
-    const kind: Destination['kind'] = directMessage ? 'telegram-dm' : topicId === null ? 'telegram-chat' : 'telegram-topic'
-    database.saveDestination({ externalId, includePrerelease: false, kind, language, ownerId: String(update.from.id), platform: 'telegram', repository, topicId })
-    await send(message(language, command === '/dm' ? 'dmEnabled' : 'subscribed'))
+    const Kind: Destination['Kind'] = DirectMessage ? 'telegram-dm' : TopicId === null ? 'telegram-chat' : 'telegram-topic'
+    Database.SaveDestination({ ExternalId, IncludePrerelease: false, Kind, Language, OwnerId: String(Update.from.id), Platform: 'telegram', Repository, TopicId })
+    await Send(Message(Language, Command === '/dm' ? 'dmEnabled' : 'subscribed'))
   })
   return {
-    async send(destination, content): Promise<void> {
-      await bot.sendMessage(destination.externalId, content.slice(0, 4_096), destination.topicId === null ? undefined : { message_thread_id: destination.topicId })
+    async Send(Destination, Content): Promise<void> {
+      await Bot.sendMessage(Destination.ExternalId, Content.slice(0, 4_096), Destination.TopicId === null ? undefined : { message_thread_id: Destination.TopicId })
     }
   }
 }

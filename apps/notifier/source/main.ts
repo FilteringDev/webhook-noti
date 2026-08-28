@@ -1,93 +1,99 @@
-import { safeReleaseMessage, repositorySlug, type Release } from '@webhook-noti/core'
+import { SafeReleaseMessage, RepositorySlug, type Release } from '@webhook-noti/core'
 import { Webhooks } from '@octokit/webhooks'
-import { createServer } from 'node:http'
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { NotifierDatabase } from './database.js'
-import { deliver, type PlatformNotifier } from './delivery.js'
-import { createDiscord } from './discord.js'
-import { environment } from './env.js'
-import { githubReferenceResolver } from './github.js'
-import { createTelegram } from './telegram.js'
+import { Deliver, type PlatformNotifier } from './delivery.js'
+import { CreateDiscord } from './discord.js'
+import { GetEnvironment } from './env.js'
+import { GithubReferenceResolver } from './github.js'
+import { CreateTelegram } from './telegram.js'
 
-const readBody = async (request: import('node:http').IncomingMessage): Promise<string> => {
-  const chunks: Buffer[] = []
-  let size = 0
-  for await (const chunk of request) {
-    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-    size += bytes.length
-    if (size > 1_048_576) throw new Error('Webhook payload exceeds 1 MiB')
-    chunks.push(bytes)
+const ReadBody = async (Request: IncomingMessage): Promise<string> => {
+  const Chunks: Buffer[] = []
+  let Size = 0
+  for await (const Chunk of Request as AsyncIterable<Buffer>) {
+    const Bytes = Buffer.isBuffer(Chunk) ? Chunk : Buffer.from(Chunk)
+    Size += Bytes.length
+    if (Size > 1_048_576) throw new Error('Webhook payload exceeds 1 MiB')
+    Chunks.push(Bytes)
   }
-  return Buffer.concat(chunks).toString('utf8')
+  return Buffer.concat(Chunks).toString('utf8')
 }
 
-const releaseFromPayload = (payload: unknown): Release | null => {
-  if (typeof payload !== 'object' || payload === null) return null
-  const event = payload as { action?: unknown, repository?: { owner?: { login?: unknown }, name?: unknown }, release?: { name?: unknown, tag_name?: unknown, body?: unknown, author?: { login?: unknown }, html_url?: unknown, prerelease?: unknown } }
-  if (event.action !== 'published' || typeof event.repository?.owner?.login !== 'string' || typeof event.repository.name !== 'string') return null
-  const release = event.release
-  if (release === undefined || typeof release.tag_name !== 'string' || typeof release.html_url !== 'string') return null
+const ReleaseFromPayload = (Payload: unknown): Release | null => {
+  if (typeof Payload !== 'object' || Payload === null) return null
+  // Mirrors the GitHub release webhook JSON payload, whose keys are fixed by GitHub's API.
+  // oxlint-disable-next-line crackle/pascal-case
+  const Event = Payload as { action?: unknown, repository?: { owner?: { login?: unknown }, name?: unknown }, release?: { name?: unknown, tag_name?: unknown, body?: unknown, author?: { login?: unknown }, html_url?: unknown, prerelease?: unknown } }
+  if (Event.action !== 'published' || typeof Event.repository?.owner?.login !== 'string' || typeof Event.repository.name !== 'string') return null
+  const ReleasePayload = Event.release
+  if (ReleasePayload === undefined || typeof ReleasePayload.tag_name !== 'string' || typeof ReleasePayload.html_url !== 'string') return null
   return {
-    repository: { owner: event.repository.owner.login.toLowerCase(), name: event.repository.name.toLowerCase() },
-    title: typeof release.name === 'string' && release.name.length > 0 ? release.name : release.tag_name,
-    tag: release.tag_name,
-    body: typeof release.body === 'string' ? release.body : '',
-    author: typeof release.author?.login === 'string' ? release.author.login : 'github',
-    url: release.html_url,
-    isPrerelease: release.prerelease === true
+    Repository: { Owner: Event.repository.owner.login.toLowerCase(), Name: Event.repository.name.toLowerCase() },
+    Title: typeof ReleasePayload.name === 'string' && ReleasePayload.name.length > 0 ? ReleasePayload.name : ReleasePayload.tag_name,
+    Tag: ReleasePayload.tag_name,
+    Body: typeof ReleasePayload.body === 'string' ? ReleasePayload.body : '',
+    Author: typeof ReleasePayload.author?.login === 'string' ? ReleasePayload.author.login : 'github',
+    Url: ReleasePayload.html_url,
+    IsPrerelease: ReleasePayload.prerelease === true
   }
 }
 
-const config = environment()
-const database = await NotifierDatabase.open(config.dataDirectory)
-const notifiers = new Map<Release['repository'] extends never ? never : 'discord' | 'telegram', PlatformNotifier>()
-if (config.discordToken !== undefined) notifiers.set('discord', createDiscord(config.discordToken, database, config.allowedRepositories))
-if (config.telegramToken !== undefined) notifiers.set('telegram', createTelegram(config.telegramToken, database, config.allowedRepositories))
-const webhooks = new Webhooks({ secret: config.githubWebhookSecret })
-const resolveReference = githubReferenceResolver(config.githubToken)
+const Config = GetEnvironment()
+const Database = await NotifierDatabase.Open(Config.DataDirectory)
+const Notifiers = new Map<Release['Repository'] extends never ? never : 'discord' | 'telegram', PlatformNotifier>()
+if (Config.DiscordToken !== undefined) Notifiers.set('discord', CreateDiscord(Config.DiscordToken, Database, Config.AllowedRepositories))
+if (Config.TelegramToken !== undefined) Notifiers.set('telegram', CreateTelegram(Config.TelegramToken, Database, Config.AllowedRepositories))
+const WebhooksClient = new Webhooks({ secret: Config.GithubWebhookSecret })
+const ResolveReference = GithubReferenceResolver(Config.GithubToken)
 
-const server = createServer(async (request, response) => {
-  if (request.method === 'GET' && request.url === '/healthz') {
-    response.writeHead(200).end('ok')
+const HandleRequest = async (Request: IncomingMessage, Response: ServerResponse): Promise<void> => {
+  if (Request.method === 'GET' && Request.url === '/healthz') {
+    Response.writeHead(200).end('ok')
     return
   }
-  if (request.method !== 'POST' || request.url !== config.webhookPath) {
-    response.writeHead(404).end()
+  if (Request.method !== 'POST' || Request.url !== Config.WebhookPath) {
+    Response.writeHead(404).end()
     return
   }
-  const deliveryId = request.headers['x-github-delivery']
-  const eventName = request.headers['x-github-event']
-  const signature = request.headers['x-hub-signature-256']
-  if (typeof deliveryId !== 'string' || typeof eventName !== 'string' || typeof signature !== 'string') {
-    response.writeHead(400).end()
+  const DeliveryId = Request.headers['x-github-delivery']
+  const EventName = Request.headers['x-github-event']
+  const Signature = Request.headers['x-hub-signature-256']
+  if (typeof DeliveryId !== 'string' || typeof EventName !== 'string' || typeof Signature !== 'string') {
+    Response.writeHead(400).end()
     return
   }
   try {
-    const body = await readBody(request)
-    if (!await webhooks.verify(body, signature)) {
-      response.writeHead(401).end()
+    const Body = await ReadBody(Request)
+    if (!await WebhooksClient.verify(Body, Signature)) {
+      Response.writeHead(401).end()
       return
     }
-    if (eventName !== 'release') {
-      response.writeHead(202).end()
+    if (EventName !== 'release') {
+      Response.writeHead(202).end()
       return
     }
-    const release = releaseFromPayload(JSON.parse(body) as unknown)
-    if (release === null || !config.allowedRepositories.has(repositorySlug(release.repository))) {
-      response.writeHead(202).end()
+    const ReleaseValue = ReleaseFromPayload(JSON.parse(Body) as unknown)
+    if (ReleaseValue === null || !Config.AllowedRepositories.has(RepositorySlug(ReleaseValue.Repository))) {
+      Response.writeHead(202).end()
       return
     }
-    if (!database.recordReceipt(deliveryId, repositorySlug(release.repository))) {
-      response.writeHead(202).end()
+    if (!Database.RecordReceipt(DeliveryId, RepositorySlug(ReleaseValue.Repository))) {
+      Response.writeHead(202).end()
       return
     }
-    const content = await safeReleaseMessage(release, resolveReference)
-    await Promise.all(database.destinationsFor(release.repository, release.isPrerelease).map(async (destination) => deliver(database, notifiers, destination, deliveryId, content)))
-    response.writeHead(202).end()
-  } catch (error) {
-    console.error(error)
-    response.writeHead(500).end()
+    const Content = await SafeReleaseMessage(ReleaseValue, ResolveReference)
+    await Promise.all(Database.DestinationsFor(ReleaseValue.Repository, ReleaseValue.IsPrerelease).map(async (Destination) => Deliver(Database, Notifiers, Destination, DeliveryId, Content)))
+    Response.writeHead(202).end()
+  } catch (CaughtError) {
+    console.error(CaughtError)
+    Response.writeHead(500).end()
   }
+}
+
+const Server = createServer((Request, Response) => {
+  void HandleRequest(Request, Response)
 })
 
-server.listen(config.port, config.host, () => console.log(`Listening on ${config.host}:${config.port}`))
-process.on('SIGTERM', () => server.close(() => database.close()))
+Server.listen(Config.Port, Config.Host, () => console.log(`Listening on ${Config.Host}:${Config.Port}`))
+process.on('SIGTERM', () => Server.close(() => Database.Close()))

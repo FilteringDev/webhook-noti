@@ -1,14 +1,14 @@
 import { Octokit } from '@octokit/rest'
 import type { ReferenceKind, ReferenceResolver } from '@webhook-noti/core'
 
-export const githubReferenceResolver = (token: string): ReferenceResolver => {
-  const octokit = new Octokit({ auth: token })
-  return async (reference): Promise<ReferenceKind> => {
-    const response = await octokit.rest.issues.get({
-      owner: reference.repository.owner,
-      repo: reference.repository.name,
-      issue_number: reference.number
+export const GithubReferenceResolver = (Token: string): ReferenceResolver => {
+  const OctokitClient = new Octokit({ auth: Token })
+  return async (Reference): Promise<ReferenceKind> => {
+    const Response = await OctokitClient.rest.issues.get({
+      owner: Reference.Repository.Owner,
+      repo: Reference.Repository.Name,
+      issue_number: Reference.Number
     })
-    return response.data.pull_request === undefined ? 'issue' : 'pull'
+    return Response.data.pull_request === undefined ? 'issue' : 'pull'
   }
 }

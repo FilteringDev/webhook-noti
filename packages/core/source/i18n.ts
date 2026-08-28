@@ -1,6 +1,6 @@
 import type { Language } from './types.js'
 
-const messages = {
+const Messages = {
   en: {
     subscribed: 'Subscription saved.',
     unsubscribed: 'Subscription removed.',
@@ -25,6 +25,6 @@ const messages = {
   }
 } as const
 
-export type MessageKey = keyof typeof messages.en
+export type MessageKey = keyof typeof Messages.en
 
-export const message = (language: Language, key: MessageKey): string => messages[language][key]
+export const Message = (Language: Language, Key: MessageKey): string => Messages[Language][Key]

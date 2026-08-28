@@ -10,37 +10,37 @@ export type DestinationKind =
   | 'telegram-dm'
 
 export interface Repository {
-  owner: string
-  name: string
+  Owner: string
+  Name: string
 }
 
 export interface Release {
-  repository: Repository
-  title: string
-  tag: string
-  body: string
-  author: string
-  url: string
-  isPrerelease: boolean
+  Repository: Repository
+  Title: string
+  Tag: string
+  Body: string
+  Author: string
+  Url: string
+  IsPrerelease: boolean
 }
 
 export interface Destination {
-  id: number
-  platform: Platform
-  kind: DestinationKind
-  externalId: string
-  topicId: number | null
-  ownerId: string
-  language: Language
-  directMessage: boolean
-  includePrerelease: boolean
+  Id: number
+  Platform: Platform
+  Kind: DestinationKind
+  ExternalId: string
+  TopicId: number | null
+  OwnerId: string
+  Language: Language
+  DirectMessage: boolean
+  IncludePrerelease: boolean
 }
 
 export type ReferenceKind = 'issue' | 'pull'
 
 export interface GitHubReference {
-  repository: Repository
-  number: number
+  Repository: Repository
+  Number: number
 }
 
 export type ReferenceResolver = (reference: GitHubReference) => Promise<ReferenceKind>

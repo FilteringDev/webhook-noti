@@ -1,73 +1,76 @@
-import { message, parseRepository, type Destination } from '@webhook-noti/core'
-import { Client, GatewayIntentBits, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js'
+import { Message, ParseRepository, type Destination } from '@webhook-noti/core'
+import { Client, GatewayIntentBits, PermissionFlagsBits, SlashCommandBuilder, type Interaction } from 'discord.js'
 import type { NotifierDatabase } from './database.js'
 import type { PlatformNotifier } from './delivery.js'
 
-const commands = [
-  new SlashCommandBuilder().setName('subscribe').setDescription('Subscribe this destination to a repository').addStringOption((option) => option.setName('repository').setDescription('owner/repository').setRequired(true)).addBooleanOption((option) => option.setName('prerelease').setDescription('Include prereleases')),
-  new SlashCommandBuilder().setName('unsubscribe').setDescription('Unsubscribe this destination from a repository').addStringOption((option) => option.setName('repository').setDescription('owner/repository').setRequired(true)),
-  new SlashCommandBuilder().setName('language').setDescription('Set response language').addStringOption((option) => option.setName('value').setDescription('en or ko').setRequired(true).addChoices({ name: 'English', value: 'en' }, { name: 'Korean', value: 'ko' })),
-  new SlashCommandBuilder().setName('dm').setDescription('Enable or disable direct-message releases').addBooleanOption((option) => option.setName('enabled').setDescription('Enable direct messages').setRequired(true)).addStringOption((option) => option.setName('repository').setDescription('owner/repository').setRequired(true))
+const Commands = [
+  new SlashCommandBuilder().setName('subscribe').setDescription('Subscribe this destination to a repository').addStringOption((Option) => Option.setName('repository').setDescription('owner/repository').setRequired(true)).addBooleanOption((Option) => Option.setName('prerelease').setDescription('Include prereleases')),
+  new SlashCommandBuilder().setName('unsubscribe').setDescription('Unsubscribe this destination from a repository').addStringOption((Option) => Option.setName('repository').setDescription('owner/repository').setRequired(true)),
+  new SlashCommandBuilder().setName('language').setDescription('Set response language').addStringOption((Option) => Option.setName('value').setDescription('en or ko').setRequired(true).addChoices({ name: 'English', value: 'en' }, { name: 'Korean', value: 'ko' })),
+  new SlashCommandBuilder().setName('dm').setDescription('Enable or disable direct-message releases').addBooleanOption((Option) => Option.setName('enabled').setDescription('Enable direct messages').setRequired(true)).addStringOption((Option) => Option.setName('repository').setDescription('owner/repository').setRequired(true))
 ]
 
-export const createDiscord = (token: string, database: NotifierDatabase, allowedRepositories: Set<string>): PlatformNotifier => {
-  const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.DirectMessages] })
-  client.once('ready', async () => {
-    await client.application?.commands.set(commands.map((command) => command.toJSON()))
+export const CreateDiscord = (Token: string, Database: NotifierDatabase, AllowedRepositories: Set<string>): PlatformNotifier => {
+  const DiscordClient = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.DirectMessages] })
+  DiscordClient.once('ready', () => {
+    void DiscordClient.application?.commands.set(Commands.map((Command) => Command.toJSON()))
   })
-  client.on('interactionCreate', async (interaction) => {
-    if (!interaction.isChatInputCommand()) return
-    const language = interaction.commandName === 'language'
-      ? interaction.options.getString('value') === 'ko' ? 'ko' : 'en'
-      : database.languageFor('discord', interaction.user.id)
-    const repositoryValue = interaction.options.getString('repository')
-    const repository = repositoryValue === null ? null : parseRepository(repositoryValue)
-    const reply = async (content: string): Promise<void> => { await interaction.reply({ content, ephemeral: true }) }
-    if (interaction.commandName === 'language') {
-      database.setLanguage('discord', interaction.user.id, language)
-      await reply(message(language, 'languageSaved'))
-      return
-    }
-    if (repository === null) {
-      await reply(message(language, 'invalidRepository'))
-      return
-    }
-    if (!allowedRepositories.has(`${repository.owner}/${repository.name}`)) {
-      await reply(message(language, 'repositoryDenied'))
-      return
-    }
-    const isDirectMessage = interaction.guildId === null
-    const canManage = isDirectMessage || interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels) === true
-    if (!canManage) {
-      await reply(message(language, 'forbidden'))
-      return
-    }
-    const externalId = isDirectMessage ? interaction.user.id : interaction.channelId
-    const kind: Destination['kind'] = isDirectMessage ? 'discord-dm' : 'discord-channel'
-    if (interaction.commandName === 'unsubscribe') {
-      await reply(message(language, database.removeDestination('discord', externalId, repository) ? 'unsubscribed' : 'failed'))
-      return
-    }
-    if (interaction.commandName === 'dm' && !(interaction.options.getBoolean('enabled') ?? true)) {
-      database.removeDestination('discord', externalId, repository)
-      await reply(message(language, 'dmDisabled'))
-      return
-    }
-    const includePrerelease = interaction.options.getBoolean('prerelease') ?? false
-    database.saveDestination({ externalId, includePrerelease, kind, language, ownerId: interaction.user.id, platform: 'discord', repository, topicId: null })
-    await reply(message(language, interaction.commandName === 'dm' && !(interaction.options.getBoolean('enabled') ?? true) ? 'dmDisabled' : interaction.commandName === 'dm' ? 'dmEnabled' : 'subscribed'))
+  DiscordClient.on('interactionCreate', (Interaction) => {
+    void HandleInteraction(Interaction)
   })
-  void client.login(token)
+  const HandleInteraction = async (Interaction: Interaction): Promise<void> => {
+    if (!Interaction.isChatInputCommand()) return
+    const Language = Interaction.commandName === 'language'
+      ? Interaction.options.getString('value') === 'ko' ? 'ko' : 'en'
+      : Database.LanguageFor('discord', Interaction.user.id)
+    const RepositoryValue = Interaction.options.getString('repository')
+    const Repository = RepositoryValue === null ? null : ParseRepository(RepositoryValue)
+    const Reply = async (Content: string): Promise<void> => { await Interaction.reply({ content: Content, ephemeral: true }) }
+    if (Interaction.commandName === 'language') {
+      Database.SetLanguage('discord', Interaction.user.id, Language)
+      await Reply(Message(Language, 'languageSaved'))
+      return
+    }
+    if (Repository === null) {
+      await Reply(Message(Language, 'invalidRepository'))
+      return
+    }
+    if (!AllowedRepositories.has(`${Repository.Owner}/${Repository.Name}`)) {
+      await Reply(Message(Language, 'repositoryDenied'))
+      return
+    }
+    const IsDirectMessage = Interaction.guildId === null
+    const CanManage = IsDirectMessage || Interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels) === true
+    if (!CanManage) {
+      await Reply(Message(Language, 'forbidden'))
+      return
+    }
+    const ExternalId = IsDirectMessage ? Interaction.user.id : Interaction.channelId
+    const Kind: Destination['Kind'] = IsDirectMessage ? 'discord-dm' : 'discord-channel'
+    if (Interaction.commandName === 'unsubscribe') {
+      await Reply(Message(Language, Database.RemoveDestination('discord', ExternalId, Repository) ? 'unsubscribed' : 'failed'))
+      return
+    }
+    if (Interaction.commandName === 'dm' && !(Interaction.options.getBoolean('enabled') ?? true)) {
+      Database.RemoveDestination('discord', ExternalId, Repository)
+      await Reply(Message(Language, 'dmDisabled'))
+      return
+    }
+    const IncludePrerelease = Interaction.options.getBoolean('prerelease') ?? false
+    Database.SaveDestination({ ExternalId, IncludePrerelease, Kind, Language, OwnerId: Interaction.user.id, Platform: 'discord', Repository, TopicId: null })
+    await Reply(Message(Language, Interaction.commandName === 'dm' && !(Interaction.options.getBoolean('enabled') ?? true) ? 'dmDisabled' : Interaction.commandName === 'dm' ? 'dmEnabled' : 'subscribed'))
+  }
+  void DiscordClient.login(Token)
   return {
-    async send(destination, content): Promise<void> {
-      const message = { content: content.slice(0, 2_000), allowedMentions: { parse: [] as [] } }
-      if (destination.kind === 'discord-dm') {
-        await (await client.users.fetch(destination.externalId)).send(message)
+    async Send(Destination, Content): Promise<void> {
+      const Payload = { content: Content.slice(0, 2_000), allowedMentions: { parse: [] as [] } }
+      if (Destination.Kind === 'discord-dm') {
+        await (await DiscordClient.users.fetch(Destination.ExternalId)).send(Payload)
         return
       }
-      const channel = await client.channels.fetch(destination.externalId)
-      if (channel === null || !channel.isSendable()) throw new Error('Discord destination is unavailable')
-      await channel.send(message)
+      const Channel = await DiscordClient.channels.fetch(Destination.ExternalId)
+      if (Channel === null || !Channel.isSendable()) throw new Error('Discord destination is unavailable')
+      await Channel.send(Payload)
     }
   }
 }

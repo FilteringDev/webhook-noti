@@ -1,9 +1,9 @@
-import { repositorySlug } from './repository.js'
+import { RepositorySlug } from './repository.js'
 import type { GitHubReference, ReferenceResolver, Release } from './types.js'
 
-const maxMessageLength = 3_800
+const MaxMessageLength = 3_800
 
-const stripMarkdown = (value: string): string => value
+const StripMarkdown = (Value: string): string => Value
   .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
   .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '$1 <$2>')
   .replace(/^\s{0,3}#{1,6}\s+/gm, '')
@@ -12,54 +12,54 @@ const stripMarkdown = (value: string): string => value
   .replace(/(\*\*|__|\*|_|~~)/g, '')
   .replace(/>\s?/g, '')
 
-const neutralizeMentions = (value: string): string => value
-  .replace(/<[@#][!&]?\d+>/g, (mention) => mention.replace('@', '@\u200b').replace('#', '#\u200b'))
+const NeutralizeMentions = (Value: string): string => Value
+  .replace(/<[@#][!&]?\d+>/g, (Mention) => Mention.replace('@', '@\u200b').replace('#', '#\u200b'))
   .replace(/@/g, '@\u200b')
   .replace(/#(?=[a-zA-Z][\w-]*)/g, '#\u200b')
 
-const referencePattern = /(?<![\w/])(?:(?<owner>[a-zA-Z0-9_.-]+)\/(?<name>[a-zA-Z0-9_.-]+))?#(?<number>\d+)\b/g
+const ReferencePattern = /(?<![\w/])(?:(?<Owner>[a-zA-Z0-9_.-]+)\/(?<Name>[a-zA-Z0-9_.-]+))?#(?<Number>\d+)\b/g
 
-const referenceUrl = (reference: GitHubReference, kind: 'issue' | 'pull'): string =>
-  `https://github.com/${repositorySlug(reference.repository)}/${kind === 'pull' ? 'pull' : 'issues'}/${reference.number}`
+const ReferenceUrl = (Reference: GitHubReference, Kind: 'issue' | 'pull'): string =>
+  `https://github.com/${RepositorySlug(Reference.Repository)}/${Kind === 'pull' ? 'pull' : 'issues'}/${Reference.Number}`
 
-export const safeReleaseMessage = async (release: Release, resolveReference: ReferenceResolver): Promise<string> => {
-  const raw = [
-    `${release.repository.owner}/${release.repository.name} ${release.tag}`,
-    release.title,
-    release.body
+export const SafeReleaseMessage = async (Release: Release, ResolveReference: ReferenceResolver): Promise<string> => {
+  const Raw = [
+    `${Release.Repository.Owner}/${Release.Repository.Name} ${Release.Tag}`,
+    Release.Title,
+    Release.Body
   ].filter(Boolean).join('\n\n')
-  const references = new Map<string, Promise<'issue' | 'pull'>>()
-  const rendered = await replaceAsync(stripMarkdown(raw), referencePattern, async (match, ...arguments_: unknown[]) => {
-    const groups = arguments_.at(-1) as { owner?: string, name?: string, number: string }
-    const repository = groups.owner !== undefined && groups.name !== undefined
-      ? { owner: groups.owner.toLowerCase(), name: groups.name.toLowerCase() }
-      : release.repository
-    const reference = { repository, number: Number(groups.number) }
-    const key = `${repositorySlug(repository)}#${groups.number}`
-    const kind = references.get(key) ?? Promise.resolve(resolveReference(reference)).catch(() => 'issue' as const)
-    references.set(key, kind)
-    return `${match} <${referenceUrl(reference, await kind)}>`
+  const References = new Map<string, Promise<'issue' | 'pull'>>()
+  const Rendered = await ReplaceAsync(StripMarkdown(Raw), ReferencePattern, async (Match, ...Arguments: unknown[]) => {
+    const Groups = Arguments.at(-1) as { Owner?: string, Name?: string, Number: string }
+    const Repository = Groups.Owner !== undefined && Groups.Name !== undefined
+      ? { Owner: Groups.Owner.toLowerCase(), Name: Groups.Name.toLowerCase() }
+      : Release.Repository
+    const ReferenceValue = { Repository, Number: Number(Groups.Number) }
+    const Key = `${RepositorySlug(Repository)}#${Groups.Number}`
+    const Kind = References.get(Key) ?? Promise.resolve(ResolveReference(ReferenceValue)).catch(() => 'issue' as const)
+    References.set(Key, Kind)
+    return `${Match} <${ReferenceUrl(ReferenceValue, await Kind)}>`
   })
-  const message = neutralizeMentions(rendered).replace(/\n{3,}/g, '\n\n').trim()
-  const suffix = `\n\n${release.url}`
-  return message.length + suffix.length > maxMessageLength
-    ? `${message.slice(0, maxMessageLength - suffix.length - 3).trimEnd()}...${suffix}`
-    : `${message}${suffix}`
+  const Message = NeutralizeMentions(Rendered).replace(/\n{3,}/g, '\n\n').trim()
+  const Suffix = `\n\n${Release.Url}`
+  return Message.length + Suffix.length > MaxMessageLength
+    ? `${Message.slice(0, MaxMessageLength - Suffix.length - 3).trimEnd()}...${Suffix}`
+    : `${Message}${Suffix}`
 }
 
-const replaceAsync = async (
-  value: string,
-  pattern: RegExp,
-  replacement: (match: string, ...arguments_: unknown[]) => Promise<string>
+const ReplaceAsync = async (
+  Value: string,
+  Pattern: RegExp,
+  Replacement: (Match: string, ...Arguments: unknown[]) => Promise<string>
 ): Promise<string> => {
-  const matches = [...value.matchAll(pattern)]
-  const replacements = await Promise.all(matches.map((match) => replacement(match[0], ...match.slice(1), match.index, match.input, match.groups)))
-  let offset = 0
-  return matches.reduce((result, match, index) => {
-    const replacementValue = replacements[index]
-    if (replacementValue === undefined || match.index === undefined) return result
-    const next = result.slice(0, match.index + offset) + replacementValue + result.slice(match.index + offset + match[0].length)
-    offset += replacementValue.length - match[0].length
-    return next
-  }, value)
+  const Matches = [...Value.matchAll(Pattern)]
+  const Replacements = await Promise.all(Matches.map((Match) => Replacement(Match[0], ...Match.slice(1), Match.index, Match.input, Match.groups)))
+  let Offset = 0
+  return Matches.reduce((Result, Match, Index) => {
+    const ReplacementValue = Replacements[Index]
+    if (ReplacementValue === undefined || Match.index === undefined) return Result
+    const Next = Result.slice(0, Match.index + Offset) + ReplacementValue + Result.slice(Match.index + Offset + Match[0].length)
+    Offset += ReplacementValue.length - Match[0].length
+    return Next
+  }, Value)
 }
