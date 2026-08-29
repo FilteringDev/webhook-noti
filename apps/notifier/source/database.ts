@@ -12,6 +12,7 @@ interface DestinationRow {
   external_id: string
   topic_id: number | null
   owner_id: string
+  guild_id: string | null
   language: Language
   direct_message: number
   include_prerelease: number
@@ -25,6 +26,7 @@ interface SubscriptionRouteRow extends DestinationRow {
 
 export interface SaveDestination {
   ExternalId: string
+  GuildId: string | null
   IncludePrerelease: boolean
   Kind: Destination['Kind']
   Language: Language
@@ -62,6 +64,7 @@ export class NotifierDatabase {
       '  external_id TEXT NOT NULL,',
       '  topic_id INTEGER,',
       '  owner_id TEXT NOT NULL,',
+      '  guild_id TEXT,',
       '  repository_owner TEXT NOT NULL,',
       '  repository_name TEXT NOT NULL,',
       '  language TEXT NOT NULL CHECK (language IN (\'en\', \'ko\')) DEFAULT \'en\',',
@@ -90,6 +93,8 @@ export class NotifierDatabase {
       '  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP',
       ');'
     ].join('\n'))
+    const DestinationColumns = Database.exec('PRAGMA table_info(destinations)')[0]?.values ?? []
+    if (!DestinationColumns.some((Column) => Column[1] === 'guild_id')) Database.run('ALTER TABLE destinations ADD COLUMN guild_id TEXT')
     NotifierDatabaseInstance.#Persist()
     return NotifierDatabaseInstance
   }
@@ -102,12 +107,12 @@ export class NotifierDatabase {
   SaveDestination(Destination: SaveDestination): void {
     this.#Database.run([
       'INSERT INTO destinations (',
-      '  platform, kind, external_id, topic_id, owner_id, repository_owner, repository_name, language, direct_message, include_prerelease',
-      ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      '  platform, kind, external_id, topic_id, owner_id, guild_id, repository_owner, repository_name, language, direct_message, include_prerelease',
+      ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       'ON CONFLICT(platform, kind, external_id, topic_id, repository_owner, repository_name) DO UPDATE SET',
-      '  owner_id = excluded.owner_id, language = excluded.language, include_prerelease = excluded.include_prerelease'
+      '  owner_id = excluded.owner_id, guild_id = excluded.guild_id, language = excluded.language, include_prerelease = excluded.include_prerelease'
     ].join('\n'), [
-      Destination.Platform, Destination.Kind, Destination.ExternalId, Destination.TopicId, Destination.OwnerId,
+      Destination.Platform, Destination.Kind, Destination.ExternalId, Destination.TopicId, Destination.OwnerId, Destination.GuildId,
       Destination.Repository.Owner, Destination.Repository.Name, Destination.Language,
       Destination.Kind.endsWith('-dm') ? 1 : 0, Destination.IncludePrerelease ? 1 : 0
     ])
@@ -139,6 +144,29 @@ export class NotifierDatabase {
     const Changed = this.#Database.getRowsModified() > 0
     if (Changed) this.#Persist()
     return Changed
+  }
+
+  ForgetDiscordGuild(GuildId: string): void {
+    this.#Database.run('DELETE FROM destinations WHERE platform = ? AND guild_id = ?', ['discord', GuildId])
+    this.#Persist()
+  }
+
+  ForgetTelegramChat(ExternalId: string): void {
+    this.#Database.run('DELETE FROM destinations WHERE platform = ? AND external_id = ?', ['telegram', ExternalId])
+    this.#Persist()
+  }
+
+  ForgetDirectMessage(Platform: Platform, ExternalId: string): void {
+    this.#Database.run('BEGIN')
+    try {
+      this.#Database.run('DELETE FROM destinations WHERE platform = ? AND external_id = ? AND direct_message = 1', [Platform, ExternalId])
+      this.#Database.run('DELETE FROM user_settings WHERE platform = ? AND external_id = ?', [Platform, ExternalId])
+      this.#Database.run('COMMIT')
+    } catch (CaughtError) {
+      this.#Database.run('ROLLBACK')
+      throw CaughtError
+    }
+    this.#Persist()
   }
 
   DestinationsFor(Repository: Repository, IsPrerelease: boolean): Destination[] {
@@ -196,6 +224,14 @@ export class NotifierDatabase {
     const Inserted = this.#Database.getRowsModified() === 1
     if (Inserted) this.#Persist()
     return Inserted
+  }
+
+  HasDestination(Id: number): boolean {
+    const Statement = this.#Database.prepare('SELECT 1 FROM destinations WHERE id = ?')
+    Statement.bind([Id])
+    const Exists = Statement.step()
+    Statement.free()
+    return Exists
   }
 
   RecordAttempt(DestinationId: number, DeliveryId: string, Status: 'sent' | 'failed', ErrorMessage?: string): void {

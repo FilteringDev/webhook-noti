@@ -26,15 +26,18 @@ export async function Deliver(
   DeliveryId: string,
   Message: string
 ): Promise<void> {
+  function Record(Status: 'sent' | 'failed', ErrorMessage?: string): void {
+    if (Database.HasDestination(Destination.Id)) Database.RecordAttempt(Destination.Id, DeliveryId, Status, ErrorMessage)
+  }
   const Notifier = Notifiers.get(Destination.Platform)
   if (Notifier === undefined) {
-    Database.RecordAttempt(Destination.Id, DeliveryId, 'failed', 'Platform bot is disabled')
+    Record('failed', 'Platform bot is disabled')
     return
   }
   try {
     await Retry(() => Notifier.Send(Destination, Message))
-    Database.RecordAttempt(Destination.Id, DeliveryId, 'sent')
+    Record('sent')
   } catch (CaughtError) {
-    Database.RecordAttempt(Destination.Id, DeliveryId, 'failed', CaughtError instanceof Error ? CaughtError.message : 'Unknown delivery error')
+    Record('failed', CaughtError instanceof Error ? CaughtError.message : 'Unknown delivery error')
   }
 }

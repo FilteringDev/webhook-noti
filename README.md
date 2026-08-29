@@ -54,6 +54,7 @@ Discord slash commands:
 - `/language value:en|ko`
 - `/dm enabled:true`
 - `/routes`
+- `/forget`
 
 Telegram commands:
 
@@ -62,8 +63,11 @@ Telegram commands:
 - `/language en` 또는 `/language ko`
 - `/dm`
 - `/routes`
+- `/forget`
 
 구독 관련 명령을 실행하면 deployment의 `ALLOWED_REPOSITORIES`에 있는 저장소만 선택 목록으로 표시됩니다. 목록은 20개씩 페이지로 나뉘어 Previous/Next로 이동할 수 있으며, 선택 세션은 10분 후 만료됩니다. 사용자는 `owner/repository`를 입력할 필요가 없습니다. Discord에서 `channel`을 지정하면 선택한 저장소의 release가 해당 채널로 전송되고, 생략하면 명령을 실행한 현재 채널로 전송됩니다. Telegram command를 forum topic에서 실행하면 선택한 저장소와 해당 topic ID가 함께 저장되어 release가 그 topic으로 전송됩니다. DM에서는 명령을 실행한 본인만 자신의 DM destination을 만들 수 있습니다. `/routes`는 현재 서버(Discord) 또는 채팅(Telegram)에 등록된 활성 구독 목록을 보여줍니다.
+
+`/forget`은 Confirm/Cancel 버튼으로 최종 확인해야 하며 확인 요청은 5분 후 만료됩니다. Discord 서버에서는 `Manage Server` 권한이, Telegram 그룹/채널에서는 administrator 권한이 필요합니다. 확인하면 현재 Discord 서버 또는 Telegram 채팅/그룹에 설정된 모든 구독과 해당 구독의 전송 이력이 즉시 삭제됩니다. Telegram forum의 모든 topic도 함께 삭제됩니다. DM에서는 현재 DM의 구독과 전송 이력, 해당 플랫폼의 언어 설정이 삭제됩니다. Discord 서버 식별자를 저장하기 시작한 뒤 생성된 구독만 서버 단위 `/forget`의 대상입니다. 그 이전의 channel-only 구독은 식별할 수 없어 유지됩니다. GitHub webhook 중복 방지 기록은 개인이나 알림 대상에 연결되지 않아 삭제 대상이 아닙니다.
 
 ## 안전성 및 저장소
 

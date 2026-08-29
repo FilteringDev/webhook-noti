@@ -3,6 +3,7 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, GatewayIntentBits
 import type { Dispatcher } from 'undici'
 import type { NotifierDatabase } from './database.js'
 import type { PlatformNotifier } from './delivery.js'
+import { ForgetConfirmation, type ForgetScope } from './forget.js'
 import { RepositorySelector, type RepositoryAction, type SelectionPage } from './selection.js'
 
 const Commands = [
@@ -10,7 +11,8 @@ const Commands = [
   new SlashCommandBuilder().setName('unsubscribe').setDescription('Unsubscribe this destination from a repository').addChannelOption((Option) => Option.setName('channel').setDescription('Channel to remove release notifications from')),
   new SlashCommandBuilder().setName('language').setDescription('Set response language').addStringOption((Option) => Option.setName('value').setDescription('en or ko').setRequired(true).addChoices({ name: 'English', value: 'en' }, { name: 'Korean', value: 'ko' })),
   new SlashCommandBuilder().setName('dm').setDescription('Enable or disable direct-message releases').addBooleanOption((Option) => Option.setName('enabled').setDescription('Enable direct messages').setRequired(true)),
-  new SlashCommandBuilder().setName('routes').setDescription('Show repository notification routes in this server')
+  new SlashCommandBuilder().setName('routes').setDescription('Show repository notification routes in this server'),
+  new SlashCommandBuilder().setName('forget').setDescription('Delete stored data for this server or direct message')
 ]
 
 function Components(Page: SelectionPage): ActionRowBuilder<StringSelectMenuBuilder | ButtonBuilder>[] {
@@ -30,12 +32,20 @@ function Components(Page: SelectionPage): ActionRowBuilder<StringSelectMenuBuild
   return Rows
 }
 
+function ForgetComponents(Id: string, Language: Destination['Language']): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId(`forget-confirm:${Id}`).setLabel(Message(Language, 'forgetConfirm')).setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId(`forget-cancel:${Id}`).setLabel(Message(Language, 'forgetCancel')).setStyle(ButtonStyle.Secondary)
+  )
+}
+
 export function CreateDiscord(Token: string, Database: NotifierDatabase, Repositories: Repository[], ProxyDispatcher?: Dispatcher): PlatformNotifier {
   const DiscordClient = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.DirectMessages],
     ...(ProxyDispatcher === undefined ? {} : { rest: { agent: ProxyDispatcher } })
   })
   const Selector = new RepositorySelector(Repositories)
+  const ForgetConfirmations = new ForgetConfirmation()
   DiscordClient.once('ready', () => {
     void DiscordClient.application?.commands.set(Commands.map((Command) => Command.toJSON()))
   })
@@ -43,6 +53,28 @@ export function CreateDiscord(Token: string, Database: NotifierDatabase, Reposit
     void HandleInteraction(Interaction)
   })
   async function HandleInteraction(Interaction: Interaction): Promise<void> {
+    if (Interaction.isButton() && (Interaction.customId.startsWith('forget-confirm:') || Interaction.customId.startsWith('forget-cancel:'))) {
+      const [Operation, Id] = Interaction.customId.split(':', 2)
+      const Language = Database.LanguageFor('discord', Interaction.user.id)
+      const SourceId = Interaction.guildId ?? Interaction.user.id
+      if (Operation === 'forget-confirm' && Interaction.guildId !== null && Interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild) !== true) {
+        await Interaction.reply({ content: Message(Language, 'forbidden'), ephemeral: true })
+        return
+      }
+      const Scope = Id === undefined ? null : ForgetConfirmations.Take(Id, Interaction.user.id, SourceId)
+      if (Scope === null) {
+        await Interaction.update({ content: Message(Language, 'forgetExpired'), components: [] })
+        return
+      }
+      if (Operation === 'forget-cancel') {
+        await Interaction.update({ content: Message(Language, 'forgetCancelled'), components: [] })
+        return
+      }
+      if (Scope.Type === 'guild') Database.ForgetDiscordGuild(Scope.GuildId)
+      else Database.ForgetDirectMessage('discord', Scope.ExternalId)
+      await Interaction.update({ content: Message(Language, 'forgotten'), components: [] })
+      return
+    }
     if (Interaction.isButton() || Interaction.isStringSelectMenu()) {
       const [Operation, Id] = Interaction.customId.split(':', 2)
       if (Id === undefined || !['repository-select', 'repository-previous', 'repository-next'].includes(Operation ?? '')) return
@@ -76,7 +108,7 @@ export function CreateDiscord(Token: string, Database: NotifierDatabase, Reposit
         return
       }
       const Kind: Destination['Kind'] = IsDirectMessage ? 'discord-dm' : 'discord-channel'
-      Database.SaveDestination({ ExternalId: Selected.ExternalId, IncludePrerelease: Selected.IncludePrerelease, Kind, Language, OwnerId: Interaction.user.id, Platform: 'discord', Repository: Selected.Repository, TopicId: Selected.TopicId })
+      Database.SaveDestination({ ExternalId: Selected.ExternalId, GuildId: Interaction.guildId, IncludePrerelease: Selected.IncludePrerelease, Kind, Language, OwnerId: Interaction.user.id, Platform: 'discord', Repository: Selected.Repository, TopicId: Selected.TopicId })
       await Interaction.update({ content: Message(Language, Selected.Action === 'dm-enable' ? 'dmEnabled' : 'subscribed'), components: [] })
       return
     }
@@ -95,6 +127,19 @@ export function CreateDiscord(Token: string, Database: NotifierDatabase, Reposit
       return
     }
     const IsDirectMessage = Interaction.guildId === null
+    if (Interaction.commandName === 'forget') {
+      if (!IsDirectMessage && Interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild) !== true) {
+        await Reply(Message(Language, 'forbidden'))
+        return
+      }
+      const SourceId = Interaction.guildId ?? Interaction.user.id
+      const Scope: ForgetScope = Interaction.guildId === null
+        ? { Platform: 'discord', Type: 'dm', ExternalId: Interaction.user.id }
+        : { Platform: 'discord', Type: 'guild', GuildId: Interaction.guildId }
+      const Id = ForgetConfirmations.Create(Interaction.user.id, SourceId, Scope)
+      await Interaction.reply({ content: Message(Language, IsDirectMessage ? 'forgetDmWarning' : 'forgetGuildWarning'), components: [ForgetComponents(Id, Language)], ephemeral: true })
+      return
+    }
     const CanManage = IsDirectMessage || Interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels) === true
     if (!CanManage) {
       await Reply(Message(Language, 'forbidden'))

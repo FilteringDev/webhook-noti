@@ -86,9 +86,9 @@ test('stores repository-specific channel and topic routes', async () => {
   const RepositoryB = { Owner: 'acme', Name: 'worker' }
   try {
     const Database = await NotifierDatabase.Open(Directory)
-    Database.SaveDestination({ ExternalId: 'discord-channel-a', IncludePrerelease: false, Kind: 'discord-channel', Language: 'en', OwnerId: 'discord-owner', Platform: 'discord', Repository: RepositoryA, TopicId: null })
-    Database.SaveDestination({ ExternalId: 'discord-channel-b', IncludePrerelease: false, Kind: 'discord-channel', Language: 'en', OwnerId: 'discord-owner', Platform: 'discord', Repository: RepositoryB, TopicId: null })
-    Database.SaveDestination({ ExternalId: 'telegram-chat', IncludePrerelease: false, Kind: 'telegram-topic', Language: 'ko', OwnerId: 'telegram-owner', Platform: 'telegram', Repository: RepositoryA, TopicId: 123 })
+    Database.SaveDestination({ ExternalId: 'discord-channel-a', GuildId: null, IncludePrerelease: false, Kind: 'discord-channel', Language: 'en', OwnerId: 'discord-owner', Platform: 'discord', Repository: RepositoryA, TopicId: null })
+    Database.SaveDestination({ ExternalId: 'discord-channel-b', GuildId: null, IncludePrerelease: false, Kind: 'discord-channel', Language: 'en', OwnerId: 'discord-owner', Platform: 'discord', Repository: RepositoryB, TopicId: null })
+    Database.SaveDestination({ ExternalId: 'telegram-chat', GuildId: null, IncludePrerelease: false, Kind: 'telegram-topic', Language: 'ko', OwnerId: 'telegram-owner', Platform: 'telegram', Repository: RepositoryA, TopicId: 123 })
 
     const RepositoryADestinations = Database.DestinationsFor(RepositoryA, false)
     assert.equal(RepositoryADestinations.length, 2)
@@ -107,10 +107,10 @@ test('lists only scoped non-DM subscription routes', async () => {
   const Directory = mkdtempSync(join(tmpdir(), 'webhook-noti-'))
   try {
     const Database = await NotifierDatabase.Open(Directory)
-    Database.SaveDestination({ ExternalId: 'discord-channel-a', IncludePrerelease: false, Kind: 'discord-channel', Language: 'en', OwnerId: 'discord-owner', Platform: 'discord', Repository: { Owner: 'acme', Name: 'api' }, TopicId: null })
-    Database.SaveDestination({ ExternalId: 'discord-channel-b', IncludePrerelease: false, Kind: 'discord-channel', Language: 'en', OwnerId: 'discord-owner', Platform: 'discord', Repository: { Owner: 'acme', Name: 'worker' }, TopicId: null })
-    Database.SaveDestination({ ExternalId: 'discord-user', IncludePrerelease: false, Kind: 'discord-dm', Language: 'en', OwnerId: 'discord-owner', Platform: 'discord', Repository: { Owner: 'acme', Name: 'dm-only' }, TopicId: null })
-    Database.SaveDestination({ ExternalId: 'telegram-chat', IncludePrerelease: false, Kind: 'telegram-topic', Language: 'ko', OwnerId: 'telegram-owner', Platform: 'telegram', Repository: { Owner: 'acme', Name: 'api' }, TopicId: 123 })
+    Database.SaveDestination({ ExternalId: 'discord-channel-a', GuildId: null, IncludePrerelease: false, Kind: 'discord-channel', Language: 'en', OwnerId: 'discord-owner', Platform: 'discord', Repository: { Owner: 'acme', Name: 'api' }, TopicId: null })
+    Database.SaveDestination({ ExternalId: 'discord-channel-b', GuildId: null, IncludePrerelease: false, Kind: 'discord-channel', Language: 'en', OwnerId: 'discord-owner', Platform: 'discord', Repository: { Owner: 'acme', Name: 'worker' }, TopicId: null })
+    Database.SaveDestination({ ExternalId: 'discord-user', GuildId: null, IncludePrerelease: false, Kind: 'discord-dm', Language: 'en', OwnerId: 'discord-owner', Platform: 'discord', Repository: { Owner: 'acme', Name: 'dm-only' }, TopicId: null })
+    Database.SaveDestination({ ExternalId: 'telegram-chat', GuildId: null, IncludePrerelease: false, Kind: 'telegram-topic', Language: 'ko', OwnerId: 'telegram-owner', Platform: 'telegram', Repository: { Owner: 'acme', Name: 'api' }, TopicId: 123 })
 
     assert.deepEqual(Database.RoutesFor('discord', ['discord-channel-a']), [{
       Id: 1,
