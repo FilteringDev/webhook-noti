@@ -43,6 +43,8 @@ Discord bot에는 Guilds/Direct Messages intents 및 대상 채널의 View Chann
 
 Telegram bot은 BotFather에서 그룹 privacy mode를 해제해야 command를 안정적으로 받을 수 있습니다. 그룹과 forum topic의 구독은 해당 그룹 administrator만 설정할 수 있습니다. 명령 또는 버튼 처리 중 Telegram API 전송 오류가 발생하면 notifier는 종료하지 않고 오류를 기록합니다.
 
+Telegram polling 오류 로그에는 request 데이터 없이 `Code`, `Status`, `Detail`이 기록됩니다. `409`는 다른 `getUpdates` 클라이언트가 같은 토큰을 사용 중이라는 뜻이므로 해당 프로세스 또는 배포를 중지합니다. polling 라이브러리는 기존 webhook을 자동으로 해제하고 재시도합니다. `401`은 bot token이 올바르지 않다는 뜻이므로 `secrets/telegram_bot_token`을 교체한 뒤 서비스를 재시작합니다.
+
 ## Bot 명령어
 
 Discord slash commands:

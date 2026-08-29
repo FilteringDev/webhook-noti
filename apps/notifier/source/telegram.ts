@@ -4,11 +4,28 @@ import { HttpsProxyAgent } from 'https-proxy-agent'
 import TelegramBot from 'node-telegram-bot-api'
 import { RunGuarded } from './async-guard.js'
 import type { NotifierDatabase } from './database.js'
-import type { PlatformNotifier } from './delivery.js'
+import { IsTransientError, type PlatformNotifier } from './delivery.js'
 import { ForgetConfirmation, type ForgetScope } from './forget.js'
 import { RepositorySelector, type SelectionPage } from './selection.js'
 
 const Logger = consola.withTag('telegram')
+
+function ObjectValue(Value: unknown): Record<string, unknown> | undefined {
+  return Value !== null && typeof Value === 'object' ? Value as Record<string, unknown> : undefined
+}
+
+export function PollingErrorDetails(CaughtError: unknown): { Code: string | undefined, Detail: string, Status: number | undefined } {
+  const ErrorValue = ObjectValue(CaughtError)
+  const ResponseValue = ObjectValue(ErrorValue?.response)
+  const Code = ErrorValue?.code
+  const Status = ErrorValue?.statusCode ?? ErrorValue?.status ?? ResponseValue?.statusCode ?? ResponseValue?.status
+  const Message = ErrorValue?.message
+  return {
+    Code: typeof Code === 'string' ? Code : undefined,
+    Detail: typeof Message === 'string' ? Message : String(CaughtError),
+    Status: typeof Status === 'number' ? Status : undefined
+  }
+}
 
 function ParseCommand(Text: string): { Command: string, Argument: string | undefined } {
   const [Command = '', Argument] = Text.trim().split(/\s+/, 2)
@@ -168,7 +185,19 @@ export function CreateTelegram(Token: string, Database: NotifierDatabase, ListRe
       await Bot.answerCallbackQuery(Callback.id)
     }, (CaughtError) => Logger.error({ message: 'Telegram callback query handler failed', Error: CaughtError }))
   })
-  Bot.on('polling_error', (CaughtError) => Logger.error({ message: 'Telegram polling failed', Error: CaughtError }))
+  let PollingFailures = 0
+  Bot.on('polling_error', (CaughtError) => {
+    PollingFailures += 1
+    const Details = PollingErrorDetails(CaughtError)
+    const Hint = Details.Status === 401
+      ? 'Check the Telegram bot token.'
+      : Details.Status === 409
+        ? 'The library removed any configured webhook and will retry. Ensure no other bot instance uses this token.'
+        : undefined
+    const Log = { Attempt: PollingFailures, ...Details, ...(Hint === undefined ? {} : { Hint }) }
+    if (IsTransientError(CaughtError)) Logger.warn({ message: 'Telegram polling failed; retrying', ...Log })
+    else Logger.error({ message: 'Telegram polling was rejected; retrying', ...Log })
+  })
   return {
     async Send(Destination, Content): Promise<void> {
       await Bot.sendMessage(Destination.ExternalId, Content.slice(0, 4_096), Destination.TopicId === null ? undefined : { message_thread_id: Destination.TopicId })

@@ -43,6 +43,8 @@ The Discord bot needs Guilds and Direct Messages intents, plus View Channel and 
 
 For reliable command handling, disable group privacy mode for the Telegram bot in BotFather. Only group administrators may configure subscriptions for groups and forum topics. Telegram API transport failures during commands or button interactions are logged without stopping the notifier.
 
+Telegram polling failures log `Code`, `Status`, and `Detail` without request data. A `409` means another `getUpdates` client is using the token; stop that process or deployment. The polling library removes a previously configured webhook and retries automatically. A `401` means the bot token is invalid; replace `secrets/telegram_bot_token` and restart the service.
+
 ## Bot Commands
 
 Discord slash commands:
