@@ -67,7 +67,7 @@ const ResolveReference = Github.ResolveReference.bind(Github)
 
 async function ProcessRelease(ReleaseValue: Release, DeliveryId: string): Promise<void> {
   try {
-    await WaitForPurge(Github, ReleaseValue, Config.GlobalpingApiToken, ProxyDispatcher)
+    await WaitForPurge(Github, ReleaseValue, Config.GlobalpingApiToken, SocksBridge?.Url)
     const Content = await SafeReleaseMessage(ReleaseValue, ResolveReference)
     await Promise.all(Database.DestinationsFor(ReleaseValue.Repository, ReleaseValue.IsPrerelease).map(async (Destination) => Deliver(Database, Notifiers, Destination, DeliveryId, Content)))
   } catch (CaughtError) {

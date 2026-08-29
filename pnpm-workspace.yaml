@@ -4,3 +4,6 @@ packages:
 
 allowBuilds:
   esbuild: true
+
+minimumReleaseAgeExclude:
+  - '@typescriptprime/securereq@2.1.0'

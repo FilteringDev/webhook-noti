@@ -2,12 +2,15 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { ConfirmCdn, SubscriptionUrlFromPackageJson } from '../../../apps/notifier/source/purge.js'
 
-function FetchFrom(Responses: Response[]): typeof fetch {
-  return (Input, Init) => {
-    void Input
-    void Init
+type GlobalpingRequest = Exclude<Parameters<typeof ConfirmCdn>[3], undefined>
+type GlobalpingRequestOptions = Parameters<GlobalpingRequest>[1]
+
+function RequestFrom(Responses: Array<{ StatusCode: number, Body: unknown }>): GlobalpingRequest {
+  return (Url, Options) => {
+    void Url
+    void Options
     const ResponseValue = Responses.shift()
-    if (ResponseValue === undefined) return Promise.reject(new Error('Unexpected fetch request'))
+    if (ResponseValue === undefined) return Promise.reject(new Error('Unexpected SecureReq request'))
     return Promise.resolve(ResponseValue)
   }
 }
@@ -26,33 +29,46 @@ test('rejects an insecure userscript SubscriptionUrl', () => {
 })
 
 test('confirms a jsdelivr URL through an authenticated successful World measurement', async () => {
-  const Requests: Array<{ Url: string, Init: RequestInit | undefined }> = []
-  const Fetch: typeof fetch = (Input, Init) => {
-    const RequestUrl = typeof Input === 'string' ? Input : Input instanceof URL ? Input.href : Input.url
-    Requests.push({ Url: RequestUrl, Init })
-    if (Requests.length === 1) return Promise.resolve(new Response(JSON.stringify({ id: 'measurement-id' }), { status: 202 }))
-    return Promise.resolve(new Response(JSON.stringify({ status: 'finished', results: [{ result: { statusCode: 200 } }] }), { status: 200 }))
+  const Requests: Array<{ Url: URL, Options: GlobalpingRequestOptions }> = []
+  const Request: GlobalpingRequest = (Url, Options) => {
+    Requests.push({ Url, Options })
+    if (Requests.length === 1) return Promise.resolve({ StatusCode: 202, Body: { id: 'measurement-id' } })
+    return Promise.resolve({ StatusCode: 200, Body: { status: 'finished', results: [{ result: { statusCode: 200 } }] } })
   }
 
-  await ConfirmCdn(new URL('https://cdn.jsdelivr.net/npm/acme@latest/dist/script.user.js?raw=1'), 'token-value', undefined, Fetch)
+  await ConfirmCdn(new URL('https://cdn.jsdelivr.net/npm/acme@latest/dist/script.user.js?raw=1'), 'token-value', undefined, Request)
 
   assert.equal(Requests.length, 2)
-  assert.equal(Requests[0]?.Url, 'https://api.globalping.io/v1/measurements')
-  assert.equal(Requests[0]?.Init?.headers instanceof Object && (Requests[0].Init.headers as Record<string, string>).authorization, 'Bearer token-value')
-  assert.deepEqual(JSON.parse(Requests[0]?.Init?.body as string), {
+  assert.equal(Requests[0]?.Url.href, 'https://api.globalping.io/v1/measurements')
+  assert.equal(Requests[0]?.Options.HttpHeaders.authorization, 'Bearer token-value')
+  assert.deepEqual(JSON.parse(Requests[0]?.Options.Payload as string), {
     type: 'http',
     target: 'cdn.jsdelivr.net',
     locations: [{ magic: 'World' }],
     measurementOptions: { protocol: 'HTTPS', request: { method: 'HEAD', path: '/npm/acme@latest/dist/script.user.js?raw=1' } }
   })
-  assert.equal(Requests[1]?.Url, 'https://api.globalping.io/v1/measurements/measurement-id')
+  assert.equal(Requests[1]?.Url.href, 'https://api.globalping.io/v1/measurements/measurement-id')
+})
+
+test('uses a CONNECT tunnel when a SOCKS bridge URL is provided', async () => {
+  const Requests: GlobalpingRequestOptions[] = []
+  const Request: GlobalpingRequest = (Url, Options) => {
+    void Url
+    Requests.push(Options)
+    if (Requests.length === 1) return Promise.resolve({ StatusCode: 202, Body: { id: 'measurement-id' } })
+    return Promise.resolve({ StatusCode: 200, Body: { status: 'finished', results: [{ result: { statusCode: 204 } }] } })
+  }
+
+  await ConfirmCdn(new URL('https://cdn.jsdelivr.net/npm/acme@latest/script.user.js'), 'token-value', 'http://127.0.0.1:8080', Request)
+
+  assert.notEqual(Requests[0]?.CreateConnection, undefined)
 })
 
 test('rejects completed Globalping measurements without a successful probe', async () => {
   await assert.rejects(
-    ConfirmCdn(new URL('https://cdn.jsdelivr.net/npm/acme@latest/script.user.js'), 'token-value', undefined, FetchFrom([
-      new Response(JSON.stringify({ id: 'measurement-id' }), { status: 202 }),
-      new Response(JSON.stringify({ status: 'finished', results: [{ result: { statusCode: 404 } }] }), { status: 200 })
+    ConfirmCdn(new URL('https://cdn.jsdelivr.net/npm/acme@latest/script.user.js'), 'token-value', undefined, RequestFrom([
+      { StatusCode: 202, Body: { id: 'measurement-id' } },
+      { StatusCode: 200, Body: { status: 'finished', results: [{ result: { statusCode: 404 } }] } }
     ])),
     /without a successful HTTP response/
   )
@@ -60,7 +76,7 @@ test('rejects completed Globalping measurements without a successful probe', asy
 
 test('rejects unsuccessful Globalping API responses', async () => {
   await assert.rejects(
-    ConfirmCdn(new URL('https://cdn.jsdelivr.net/npm/acme@latest/script.user.js'), 'token-value', undefined, FetchFrom([new Response(null, { status: 401 })])),
+    ConfirmCdn(new URL('https://cdn.jsdelivr.net/npm/acme@latest/script.user.js'), 'token-value', undefined, RequestFrom([{ StatusCode: 401, Body: null }])),
     /Globalping API returned HTTP 401/
   )
 })
