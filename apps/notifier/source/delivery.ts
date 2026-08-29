@@ -27,27 +27,27 @@ export async function Deliver(
   Database: NotifierDatabase,
   Notifiers: Map<Destination['Platform'], PlatformNotifier>,
   Destination: Destination,
-  DeliveryId: string,
+  ReleaseKey: string,
   Message: string
 ): Promise<void> {
   function Record(Status: 'sent' | 'failed', ErrorMessage?: string): void {
-    if (Database.HasDestination(Destination.Id)) Database.RecordAttempt(Destination.Id, DeliveryId, Status, ErrorMessage)
+    if (Database.HasDestination(Destination.Id)) Database.RecordAttempt(Destination.Id, ReleaseKey, Status, ErrorMessage)
   }
   const Notifier = Notifiers.get(Destination.Platform)
   if (Notifier === undefined) {
     Record('failed', 'Platform bot is disabled')
-    Logger.error({ message: 'Delivery failed: platform bot is disabled', DeliveryId, DestinationId: Destination.Id, Platform: Destination.Platform })
+    Logger.error({ message: 'Delivery failed: platform bot is disabled', ReleaseKey, DestinationId: Destination.Id, Platform: Destination.Platform })
     return
   }
   try {
     await Retry(
       () => Notifier.Send(Destination, Message),
-      (Attempt, CaughtError) => Logger.warn({ message: 'Delivery attempt failed', DeliveryId, DestinationId: Destination.Id, Platform: Destination.Platform, Attempt, Error: CaughtError })
+      (Attempt, CaughtError) => Logger.warn({ message: 'Delivery attempt failed', ReleaseKey, DestinationId: Destination.Id, Platform: Destination.Platform, Attempt, Error: CaughtError })
     )
     Record('sent')
-    Logger.info({ message: 'Delivery sent', DeliveryId, DestinationId: Destination.Id, Platform: Destination.Platform })
+    Logger.info({ message: 'Delivery sent', ReleaseKey, DestinationId: Destination.Id, Platform: Destination.Platform })
   } catch (CaughtError) {
     Record('failed', CaughtError instanceof Error ? CaughtError.message : 'Unknown delivery error')
-    Logger.error({ message: 'Delivery failed after retries', DeliveryId, DestinationId: Destination.Id, Platform: Destination.Platform, Error: CaughtError })
+    Logger.error({ message: 'Delivery failed after retries', ReleaseKey, DestinationId: Destination.Id, Platform: Destination.Platform, Error: CaughtError })
   }
 }

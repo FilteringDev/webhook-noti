@@ -17,6 +17,12 @@ export interface WorkflowJob {
   Conclusion: string | null
 }
 
+export interface ReleasePage {
+  ETag: string | undefined
+  NotModified: boolean
+  Releases: unknown[]
+}
+
 function Expired(ExpiresAt: number): boolean {
   return ExpiresAt <= Date.now() + 60_000
 }
@@ -29,7 +35,7 @@ export class GithubClient {
   private readonly AppAuth: ReturnType<typeof createAppAuth>
   private AppClient: CachedClient | undefined
   private readonly InstallationIds = new Map<string, number>()
-  private readonly InstallationClients = new Map<string, CachedClient>()
+  private readonly InstallationClients = new Map<number, CachedClient>()
 
   constructor(AppId: string, PrivateKey: string, private readonly ProxyDispatcher?: Dispatcher) {
     this.AppAuth = createAppAuth({ appId: AppId, privateKey: PrivateKey })
@@ -66,14 +72,68 @@ export class GithubClient {
     return Installation.id
   }
 
-  private async ClientFor(RepositoryValue: Repository): Promise<Octokit> {
-    const Slug = `${RepositoryValue.Owner}/${RepositoryValue.Name}`
-    const Cached = this.InstallationClients.get(Slug)
+  private async InstallationClient(Id: number): Promise<Octokit> {
+    const Cached = this.InstallationClients.get(Id)
     if (Cached !== undefined && !Expired(Cached.ExpiresAt)) return Cached.Client
-    const Authentication = await this.AppAuth({ type: 'installation', installationId: await this.InstallationId(RepositoryValue) })
+    const Authentication = await this.AppAuth({ type: 'installation', installationId: Id })
     const Client = { Client: this.CreateClient(Authentication.token), ExpiresAt: Date.parse(Authentication.expiresAt) }
-    this.InstallationClients.set(Slug, Client)
+    this.InstallationClients.set(Id, Client)
     return Client.Client
+  }
+
+  private async ClientFor(RepositoryValue: Repository): Promise<Octokit> {
+    return this.InstallationClient(await this.InstallationId(RepositoryValue))
+  }
+
+  async Installations(): Promise<number[]> {
+    const Client = await this.GetAppClient()
+    const Ids: number[] = []
+    for (let Page = 1; ; Page += 1) {
+      const Response = await Client.request('GET /app/installations', { per_page: 100, page: Page })
+      const Items = Response.data as unknown
+      if (!Array.isArray(Items) || Items.length === 0) break
+      for (const Item of Items) {
+        const Id = (Item as { id?: unknown }).id
+        if (typeof Id === 'number') Ids.push(Id)
+      }
+      if (Items.length < 100) break
+    }
+    return Ids
+  }
+
+  async InstallationRepositories(Id: number): Promise<Repository[]> {
+    const Client = await this.InstallationClient(Id)
+    const Repositories: Repository[] = []
+    for (let Page = 1; ; Page += 1) {
+      const Response = await Client.request('GET /installation/repositories', { per_page: 100, page: Page })
+      const Items = (Response.data as { repositories?: unknown }).repositories
+      if (!Array.isArray(Items) || Items.length === 0) break
+      for (const Item of Items) {
+        const Value = Item as { name?: unknown, owner?: { login?: unknown } | null }
+        if (typeof Value.name !== 'string' || typeof Value.owner?.login !== 'string') continue
+        const RepositoryValue = { Owner: Value.owner.login.toLowerCase(), Name: Value.name.toLowerCase() }
+        this.InstallationIds.set(`${RepositoryValue.Owner}/${RepositoryValue.Name}`, Id)
+        Repositories.push(RepositoryValue)
+      }
+      if (Items.length < 100) break
+    }
+    return Repositories
+  }
+
+  async ListReleases(RepositoryValue: Repository, ETag?: string): Promise<ReleasePage> {
+    try {
+      const Response = await (await this.ClientFor(RepositoryValue)).request('GET /repos/{owner}/{repo}/releases', {
+        ...GithubParameters(RepositoryValue),
+        per_page: 30,
+        headers: ETag === undefined ? {} : { 'if-none-match': ETag }
+      })
+      if (!Array.isArray(Response.data)) throw new Error(`GitHub did not return releases for ${RepositoryValue.Owner}/${RepositoryValue.Name}`)
+      return { NotModified: false, ETag: Response.headers.etag, Releases: Response.data }
+    } catch (CaughtError) {
+      // @octokit/request throws on 304, which is the expected hit for a conditional request.
+      if ((CaughtError as { status?: unknown }).status !== 304) throw CaughtError
+      return { NotModified: true, ETag, Releases: [] }
+    }
   }
 
   async ResolveReference(Reference: Parameters<ReferenceResolver>[0]): Promise<ReferenceKind> {

@@ -40,6 +40,11 @@ export interface SubscriptionRoute extends Destination {
   Repository: Repository
 }
 
+export interface ReleaseWatermark {
+  ETag: string | undefined
+  PublishedAt: string
+}
+
 export class NotifierDatabase {
   readonly #Database: Database
   readonly #Path: string
@@ -73,10 +78,17 @@ export class NotifierDatabase {
       '  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,',
       '  UNIQUE (platform, kind, external_id, topic_id, repository_owner, repository_name)',
       ');',
-      'CREATE TABLE IF NOT EXISTS webhook_receipts (',
-      '  delivery_id TEXT PRIMARY KEY,',
+      'CREATE TABLE IF NOT EXISTS release_receipts (',
       '  repository TEXT NOT NULL,',
-      '  received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP',
+      '  release_id INTEGER NOT NULL,',
+      '  received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,',
+      '  PRIMARY KEY (repository, release_id)',
+      ');',
+      'CREATE TABLE IF NOT EXISTS release_watermarks (',
+      '  repository TEXT PRIMARY KEY,',
+      '  last_published_at TEXT NOT NULL,',
+      '  etag TEXT,',
+      '  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP',
       ');',
       'CREATE TABLE IF NOT EXISTS user_settings (',
       '  platform TEXT NOT NULL CHECK (platform IN (\'discord\', \'telegram\')),',
@@ -87,14 +99,17 @@ export class NotifierDatabase {
       'CREATE TABLE IF NOT EXISTS delivery_attempts (',
       '  id INTEGER PRIMARY KEY,',
       '  destination_id INTEGER NOT NULL REFERENCES destinations(id) ON DELETE CASCADE,',
-      '  github_delivery_id TEXT NOT NULL,',
+      '  release_key TEXT NOT NULL,',
       '  status TEXT NOT NULL CHECK (status IN (\'sent\', \'failed\')),',
       '  error_message TEXT,',
       '  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP',
-      ');'
+      ');',
+      'DROP TABLE IF EXISTS webhook_receipts;'
     ].join('\n'))
     const DestinationColumns = Database.exec('PRAGMA table_info(destinations)')[0]?.values ?? []
     if (!DestinationColumns.some((Column) => Column[1] === 'guild_id')) Database.run('ALTER TABLE destinations ADD COLUMN guild_id TEXT')
+    const AttemptColumns = Database.exec('PRAGMA table_info(delivery_attempts)')[0]?.values ?? []
+    if (AttemptColumns.some((Column) => Column[1] === 'github_delivery_id')) Database.run('ALTER TABLE delivery_attempts RENAME COLUMN github_delivery_id TO release_key')
     NotifierDatabaseInstance.#Persist()
     return NotifierDatabaseInstance
   }
@@ -219,11 +234,28 @@ export class NotifierDatabase {
     }))
   }
 
-  RecordReceipt(DeliveryId: string, Repository: string): boolean {
-    this.#Database.run('INSERT OR IGNORE INTO webhook_receipts (delivery_id, repository) VALUES (?, ?)', [DeliveryId, Repository])
+  RecordRelease(Repository: string, ReleaseId: number): boolean {
+    this.#Database.run('INSERT OR IGNORE INTO release_receipts (repository, release_id) VALUES (?, ?)', [Repository, ReleaseId])
     const Inserted = this.#Database.getRowsModified() === 1
     if (Inserted) this.#Persist()
     return Inserted
+  }
+
+  Watermark(Repository: string): ReleaseWatermark | undefined {
+    const Statement = this.#Database.prepare('SELECT last_published_at, etag FROM release_watermarks WHERE repository = ?')
+    Statement.bind([Repository])
+    const Row = Statement.step() ? Statement.getAsObject() : undefined
+    Statement.free()
+    if (Row === undefined || typeof Row.last_published_at !== 'string') return undefined
+    return { ETag: typeof Row.etag === 'string' ? Row.etag : undefined, PublishedAt: Row.last_published_at }
+  }
+
+  SaveWatermark(Repository: string, PublishedAt: string, ETag: string | undefined): void {
+    this.#Database.run([
+      'INSERT INTO release_watermarks (repository, last_published_at, etag, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)',
+      'ON CONFLICT(repository) DO UPDATE SET last_published_at = excluded.last_published_at, etag = excluded.etag, updated_at = excluded.updated_at'
+    ].join('\n'), [Repository, PublishedAt, ETag ?? null])
+    this.#Persist()
   }
 
   HasDestination(Id: number): boolean {
@@ -234,11 +266,11 @@ export class NotifierDatabase {
     return Exists
   }
 
-  RecordAttempt(DestinationId: number, DeliveryId: string, Status: 'sent' | 'failed', ErrorMessage?: string): void {
+  RecordAttempt(DestinationId: number, ReleaseKey: string, Status: 'sent' | 'failed', ErrorMessage?: string): void {
     this.#Database.run([
-      'INSERT INTO delivery_attempts (destination_id, github_delivery_id, status, error_message)',
+      'INSERT INTO delivery_attempts (destination_id, release_key, status, error_message)',
       'VALUES (?, ?, ?, ?)'
-    ].join('\n'), [DestinationId, DeliveryId, Status, ErrorMessage ?? null])
+    ].join('\n'), [DestinationId, ReleaseKey, Status, ErrorMessage ?? null])
     this.#Persist()
   }
 

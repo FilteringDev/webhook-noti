@@ -24,23 +24,33 @@ export interface SelectionPage {
 interface Selection extends SelectionContext {
   ExpiresAt: number
   Page: number
+  Repositories: Repository[]
 }
 
 const PageSize = 20
 const LifetimeMilliseconds = 10 * 60 * 1_000
 
+function Sorted(Repositories: Repository[]): Repository[] {
+  return [...Repositories].sort((Left, Right) => `${Left.Owner}/${Left.Name}`.localeCompare(`${Right.Owner}/${Right.Name}`))
+}
+
+function PageCount(Selection: Selection): number {
+  return Math.ceil(Selection.Repositories.length / PageSize)
+}
+
 export class RepositorySelector {
-  readonly #Repositories: Repository[]
+  readonly #ListRepositories: () => Repository[]
   readonly #Selections = new Map<string, Selection>()
 
-  constructor(Repositories: Repository[]) {
-    this.#Repositories = [...Repositories].sort((Left, Right) => `${Left.Owner}/${Left.Name}`.localeCompare(`${Right.Owner}/${Right.Name}`))
+  constructor(ListRepositories: () => Repository[]) {
+    this.#ListRepositories = ListRepositories
   }
 
   Create(Context: SelectionContext): SelectionPage {
     this.#RemoveExpired()
     const Id = randomUUID()
-    this.#Selections.set(Id, { ...Context, ExpiresAt: Date.now() + LifetimeMilliseconds, Page: 0 })
+    // Snapshot the installed repositories so paging stays stable while an installation is added or removed.
+    this.#Selections.set(Id, { ...Context, ExpiresAt: Date.now() + LifetimeMilliseconds, Page: 0, Repositories: Sorted(this.#ListRepositories()) })
     return this.#Page(Id)
   }
 
@@ -54,7 +64,7 @@ export class RepositorySelector {
   Next(Id: string, Context: SelectionValidationContext): SelectionPage | null {
     const Selection = this.#Selection(Id, Context)
     if (Selection === null) return null
-    Selection.Page = Math.min(this.#PageCount() - 1, Selection.Page + 1)
+    Selection.Page = Math.min(PageCount(Selection) - 1, Selection.Page + 1)
     return this.#Page(Id)
   }
 
@@ -63,7 +73,7 @@ export class RepositorySelector {
     if (Selection === null || !/^(?:0|[1-9][0-9]*)$/.test(Index)) return null
     const PageIndex = Number(Index)
     if (PageIndex >= PageSize) return null
-    const Repository = this.#Repositories[Selection.Page * PageSize + PageIndex]
+    const Repository = Selection.Repositories[Selection.Page * PageSize + PageIndex]
     if (Repository === undefined) return null
     this.#Selections.delete(Id)
     return { Action: Selection.Action, ExternalId: Selection.ExternalId, IncludePrerelease: Selection.IncludePrerelease, Repository, TopicId: Selection.TopicId }
@@ -80,11 +90,7 @@ export class RepositorySelector {
     const Selection = this.#Selections.get(Id)
     if (Selection === undefined) throw new Error('Selection does not exist')
     const Start = Selection.Page * PageSize
-    return { Id, Page: Selection.Page, PageCount: this.#PageCount(), Repositories: this.#Repositories.slice(Start, Start + PageSize) }
-  }
-
-  #PageCount(): number {
-    return Math.ceil(this.#Repositories.length / PageSize)
+    return { Id, Page: Selection.Page, PageCount: PageCount(Selection), Repositories: Selection.Repositories.slice(Start, Start + PageSize) }
   }
 
   #RemoveExpired(): void {

@@ -5,16 +5,13 @@ services:
       dockerfile: Dockerfile
     platform: linux/amd64
     environment:
-      ALLOWED_REPOSITORIES: ${ALLOWED_REPOSITORIES:?Set ALLOWED_REPOSITORIES in .env}
       GITHUB_APP_ID: ${GITHUB_APP_ID:?Set GITHUB_APP_ID in .env}
       GITHUB_APP_PRIVATE_KEY_FILE: /run/secrets/github_app_private_key
-      GITHUB_WEBHOOK_SECRET_FILE: /run/secrets/github_webhook_secret
       GLOBALPING_API_TOKEN_FILE: /run/secrets/globalping_api_token
       DISCORD_BOT_TOKEN_FILE: /run/secrets/discord_bot_token
       TELEGRAM_BOT_TOKEN_FILE: /run/secrets/telegram_bot_token
     secrets:
       - github_app_private_key
-      - github_webhook_secret
       - globalping_api_token
       - discord_bot_token
       - telegram_bot_token
@@ -40,8 +37,6 @@ volumes:
 secrets:
   github_app_private_key:
     file: ./secrets/github_app_private_key
-  github_webhook_secret:
-    file: ./secrets/github_webhook_secret
   globalping_api_token:
     file: ./secrets/globalping_api_token
   discord_bot_token:

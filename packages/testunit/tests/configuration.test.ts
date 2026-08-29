@@ -7,11 +7,10 @@ import { NotifierDatabase } from '../../../apps/notifier/source/database.js'
 import { GetEnvironment } from '../../../apps/notifier/source/env.js'
 import { RepositorySelector } from '../../../apps/notifier/source/selection.js'
 
-const SensitiveNames = ['GITHUB_APP_PRIVATE_KEY', 'GITHUB_WEBHOOK_SECRET', 'GLOBALPING_API_TOKEN', 'DISCORD_BOT_TOKEN', 'TELEGRAM_BOT_TOKEN'] as const
+const SensitiveNames = ['GITHUB_APP_PRIVATE_KEY', 'GLOBALPING_API_TOKEN', 'DISCORD_BOT_TOKEN', 'TELEGRAM_BOT_TOKEN'] as const
 
 test('loads sensitive settings only from non-empty files', () => {
   const Original = new Map<string, string | undefined>([
-    ['ALLOWED_REPOSITORIES', process.env.ALLOWED_REPOSITORIES],
     ['GITHUB_APP_ID', process.env.GITHUB_APP_ID],
     ...SensitiveNames.flatMap((Name) => [[Name, process.env[Name]], [`${Name}_FILE`, process.env[`${Name}_FILE`]]] as const)
   ])
@@ -21,34 +20,27 @@ test('loads sensitive settings only from non-empty files', () => {
       delete process.env[Name]
       delete process.env[`${Name}_FILE`]
     }
-    process.env.ALLOWED_REPOSITORIES = 'Acme/Widget,acme/API'
     delete process.env.GITHUB_APP_ID
     process.env.GITHUB_APP_PRIVATE_KEY = 'plaintext-is-not-accepted'
-    process.env.GITHUB_WEBHOOK_SECRET = 'plaintext-is-not-accepted'
     process.env.GLOBALPING_API_TOKEN = 'plaintext-is-not-accepted'
     assert.throws(GetEnvironment, /GITHUB_APP_ID is required/)
 
     const GithubAppPrivateKeyPath = join(Directory, 'github-app-private-key')
-    const WebhookSecretPath = join(Directory, 'webhook-secret')
     const GlobalpingApiTokenPath = join(Directory, 'globalping-api-token')
     const DiscordTokenPath = join(Directory, 'discord-token')
     writeFileSync(GithubAppPrivateKeyPath, 'github-app-private-key\n')
-    writeFileSync(WebhookSecretPath, 'webhook-secret\n')
     writeFileSync(GlobalpingApiTokenPath, 'globalping-api-token\n')
     writeFileSync(DiscordTokenPath, '')
     process.env.GITHUB_APP_ID = '12345'
     process.env.GITHUB_APP_PRIVATE_KEY_FILE = GithubAppPrivateKeyPath
-    process.env.GITHUB_WEBHOOK_SECRET_FILE = WebhookSecretPath
     process.env.GLOBALPING_API_TOKEN_FILE = GlobalpingApiTokenPath
     process.env.DISCORD_BOT_TOKEN_FILE = DiscordTokenPath
 
     const Environment = GetEnvironment()
     assert.equal(Environment.GithubAppId, '12345')
     assert.equal(Environment.GithubAppPrivateKey, 'github-app-private-key')
-    assert.equal(Environment.GithubWebhookSecret, 'webhook-secret')
     assert.equal(Environment.GlobalpingApiToken, 'globalping-api-token')
     assert.equal(Environment.DiscordToken, undefined)
-    assert.deepEqual(Environment.Repositories, [{ Owner: 'acme', Name: 'widget' }, { Owner: 'acme', Name: 'api' }])
   } finally {
     for (const [Name, Value] of Original) {
       if (Value === undefined) delete process.env[Name]
@@ -58,12 +50,12 @@ test('loads sensitive settings only from non-empty files', () => {
   }
 })
 
-test('selects only configured repositories and rejects mismatched callbacks', () => {
+test('selects only installed repositories and rejects mismatched callbacks', () => {
   const Repositories = Array.from({ length: 21 }).map((UnusedValue, Index) => {
     void UnusedValue
     return { Owner: 'acme', Name: `repository-${Index}` }
   })
-  const Selector = new RepositorySelector(Repositories)
+  const Selector = new RepositorySelector(() => Repositories)
   const Context = { Action: 'subscribe' as const, ExternalId: 'destination', IncludePrerelease: false, OwnerId: 'owner', SourceId: 'source', TopicId: null }
   const FirstPage = Selector.Create(Context)
   assert.equal(FirstPage.Repositories.length, 20)

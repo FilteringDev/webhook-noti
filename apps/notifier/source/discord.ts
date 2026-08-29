@@ -39,12 +39,12 @@ function ForgetComponents(Id: string, Language: Destination['Language']): Action
   )
 }
 
-export function CreateDiscord(Token: string, Database: NotifierDatabase, Repositories: Repository[], ProxyDispatcher?: Dispatcher): PlatformNotifier {
+export function CreateDiscord(Token: string, Database: NotifierDatabase, ListRepositories: () => Repository[], ProxyDispatcher?: Dispatcher): PlatformNotifier {
   const DiscordClient = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.DirectMessages],
     ...(ProxyDispatcher === undefined ? {} : { rest: { agent: ProxyDispatcher } })
   })
-  const Selector = new RepositorySelector(Repositories)
+  const Selector = new RepositorySelector(ListRepositories)
   const ForgetConfirmations = new ForgetConfirmation()
   DiscordClient.once('ready', () => {
     void DiscordClient.application?.commands.set(Commands.map((Command) => Command.toJSON()))

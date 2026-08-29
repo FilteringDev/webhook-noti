@@ -32,14 +32,14 @@ function ForgetKeyboard(Id: string, Language: Language): TelegramBot.InlineKeybo
   }
 }
 
-export function CreateTelegram(Token: string, Database: NotifierDatabase, Repositories: Repository[], ProxyUrl?: string): PlatformNotifier {
+export function CreateTelegram(Token: string, Database: NotifierDatabase, ListRepositories: () => Repository[], ProxyUrl?: string): PlatformNotifier {
   // @types/request's `Options` union requires a `url`/`uri` field that a bare `agent` override never needs.
   const RequestOptions = ProxyUrl === undefined ? undefined : { agent: new HttpsProxyAgent(ProxyUrl) } as unknown as TelegramBot.ConstructorOptions['request']
   const Bot = new TelegramBot(Token, {
     polling: true,
     ...(RequestOptions === undefined ? {} : { request: RequestOptions })
   })
-  const Selector = new RepositorySelector(Repositories)
+  const Selector = new RepositorySelector(ListRepositories)
   const ForgetConfirmations = new ForgetConfirmation()
   Bot.on('message', async (Update) => {
     if (Update.text === undefined || Update.from === undefined) return
