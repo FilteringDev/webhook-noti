@@ -62,6 +62,15 @@ if (Config.TelegramToken !== undefined) Notifiers.set('telegram', CreateTelegram
 const WebhooksClient = new Webhooks({ secret: Config.GithubWebhookSecret })
 const ResolveReference = GithubReferenceResolver(Config.GithubToken, ProxyDispatcher)
 
+async function ProcessRelease(ReleaseValue: Release, DeliveryId: string): Promise<void> {
+  try {
+    const Content = await SafeReleaseMessage(ReleaseValue, ResolveReference)
+    await Promise.all(Database.DestinationsFor(ReleaseValue.Repository, ReleaseValue.IsPrerelease).map(async (Destination) => Deliver(Database, Notifiers, Destination, DeliveryId, Content)))
+  } catch (CaughtError) {
+    console.error(CaughtError)
+  }
+}
+
 async function HandleRequest(Request: IncomingMessage, Response: ServerResponse): Promise<void> {
   if (Request.method === 'GET' && Request.url === '/healthz') {
     Response.writeHead(200).end('ok')
@@ -97,9 +106,9 @@ async function HandleRequest(Request: IncomingMessage, Response: ServerResponse)
       Response.writeHead(202).end()
       return
     }
-    const Content = await SafeReleaseMessage(ReleaseValue, ResolveReference)
-    await Promise.all(Database.DestinationsFor(ReleaseValue.Repository, ReleaseValue.IsPrerelease).map(async (Destination) => Deliver(Database, Notifiers, Destination, DeliveryId, Content)))
+    // Ack GitHub immediately; resolution and delivery can exceed its webhook timeout.
     Response.writeHead(202).end()
+    void ProcessRelease(ReleaseValue, DeliveryId)
   } catch (CaughtError) {
     console.error(CaughtError)
     Response.writeHead(500).end()
