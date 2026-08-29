@@ -7,7 +7,8 @@ import { NotifierDatabase } from './database.js'
 import { Deliver, type PlatformNotifier } from './delivery.js'
 import { CreateDiscord } from './discord.js'
 import { GetEnvironment } from './env.js'
-import { GithubReferenceResolver } from './github.js'
+import { GithubClient } from './github.js'
+import { WaitForPurge } from './purge.js'
 import { StartSocksBridge } from './socks-bridge.js'
 import { CreateTelegram } from './telegram.js'
 
@@ -27,10 +28,10 @@ function ReleaseFromPayload(Payload: unknown): Release | null {
   if (typeof Payload !== 'object' || Payload === null) return null
   // Mirrors the GitHub release webhook JSON payload, whose keys are fixed by GitHub's API.
   // oxlint-disable-next-line crackle/pascal-case
-  const Event = Payload as { action?: unknown, repository?: { owner?: { login?: unknown }, name?: unknown }, release?: { name?: unknown, tag_name?: unknown, body?: unknown, author?: { login?: unknown }, html_url?: unknown, prerelease?: unknown } }
+  const Event = Payload as { action?: unknown, repository?: { owner?: { login?: unknown }, name?: unknown }, release?: { name?: unknown, tag_name?: unknown, body?: unknown, author?: { login?: unknown }, html_url?: unknown, prerelease?: unknown, target_commitish?: unknown } }
   if (Event.action !== 'published' || typeof Event.repository?.owner?.login !== 'string' || typeof Event.repository.name !== 'string') return null
   const ReleasePayload = Event.release
-  if (ReleasePayload === undefined || typeof ReleasePayload.tag_name !== 'string' || typeof ReleasePayload.html_url !== 'string') return null
+  if (ReleasePayload === undefined || typeof ReleasePayload.tag_name !== 'string' || typeof ReleasePayload.html_url !== 'string' || typeof ReleasePayload.target_commitish !== 'string') return null
   return {
     Repository: { Owner: Event.repository.owner.login.toLowerCase(), Name: Event.repository.name.toLowerCase() },
     Title: typeof ReleasePayload.name === 'string' && ReleasePayload.name.length > 0 ? ReleasePayload.name : ReleasePayload.tag_name,
@@ -38,7 +39,8 @@ function ReleaseFromPayload(Payload: unknown): Release | null {
     Body: typeof ReleasePayload.body === 'string' ? ReleasePayload.body : '',
     Author: typeof ReleasePayload.author?.login === 'string' ? ReleasePayload.author.login : 'github',
     Url: ReleasePayload.html_url,
-    IsPrerelease: ReleasePayload.prerelease === true
+    IsPrerelease: ReleasePayload.prerelease === true,
+    TargetCommitish: ReleasePayload.target_commitish
   }
 }
 
@@ -60,10 +62,12 @@ const Notifiers = new Map<Release['Repository'] extends never ? never : 'discord
 if (Config.DiscordToken !== undefined) Notifiers.set('discord', CreateDiscord(Config.DiscordToken, Database, Config.Repositories, ProxyDispatcher))
 if (Config.TelegramToken !== undefined) Notifiers.set('telegram', CreateTelegram(Config.TelegramToken, Database, Config.Repositories, SocksBridge?.Url))
 const WebhooksClient = new Webhooks({ secret: Config.GithubWebhookSecret })
-const ResolveReference = GithubReferenceResolver(Config.GithubToken, ProxyDispatcher)
+const Github = new GithubClient(Config.GithubAppId, Config.GithubAppPrivateKey, ProxyDispatcher)
+const ResolveReference = Github.ResolveReference.bind(Github)
 
 async function ProcessRelease(ReleaseValue: Release, DeliveryId: string): Promise<void> {
   try {
+    await WaitForPurge(Github, ReleaseValue)
     const Content = await SafeReleaseMessage(ReleaseValue, ResolveReference)
     await Promise.all(Database.DestinationsFor(ReleaseValue.Repository, ReleaseValue.IsPrerelease).map(async (Destination) => Deliver(Database, Notifiers, Destination, DeliveryId, Content)))
   } catch (CaughtError) {

@@ -9,7 +9,8 @@ const ReleaseValue: Release = {
   Body: 'Fixes #42 and acme/api#9. Visit #general. <@12345>',
   Author: 'octo',
   Url: 'https://github.com/acme/widget/releases/tag/v1.2.3',
-  IsPrerelease: false
+  IsPrerelease: false,
+  TargetCommitish: '0123456789012345678901234567890123456789'
 }
 
 test('renders plain text, full GitHub URLs, and neutralized mentions', async () => {

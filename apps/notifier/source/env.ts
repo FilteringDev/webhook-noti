@@ -33,7 +33,8 @@ export interface Environment {
   Repositories: Repository[]
   DataDirectory: string
   DiscordToken: string | undefined
-  GithubToken: string
+  GithubAppId: string
+  GithubAppPrivateKey: string
   GithubWebhookSecret: string
   Host: string
   Port: number
@@ -54,7 +55,8 @@ export function GetEnvironment(): Environment {
     Repositories,
     DataDirectory: resolve(process.env.DATA_DIR?.trim() || '/var/lib/webhook-noti'),
     DiscordToken: Secret('DISCORD_BOT_TOKEN', false),
-    GithubToken: Secret('GITHUB_TOKEN', true) as string,
+    GithubAppId: Required('GITHUB_APP_ID'),
+    GithubAppPrivateKey: Secret('GITHUB_APP_PRIVATE_KEY', true) as string,
     GithubWebhookSecret: Secret('GITHUB_WEBHOOK_SECRET', true) as string,
     Host: process.env.HOST?.trim() || '0.0.0.0',
     Port,

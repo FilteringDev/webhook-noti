@@ -22,6 +22,7 @@ export interface Release {
   Author: string
   Url: string
   IsPrerelease: boolean
+  TargetCommitish: string
 }
 
 export interface Destination {
