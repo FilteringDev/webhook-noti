@@ -5,6 +5,7 @@ import type { Dispatcher } from 'undici'
 import { RunGuarded } from './async-guard.js'
 import type { NotifierDatabase } from './database.js'
 import type { PlatformNotifier } from './delivery.js'
+import { ReplyWithFailure } from './discord-response.js'
 import { ForgetConfirmation, type ForgetScope } from './forget.js'
 import { RepositorySelector, type RepositoryAction, type SelectionPage } from './selection.js'
 
@@ -54,8 +55,21 @@ export function CreateDiscord(Token: string, Database: NotifierDatabase, ListRep
     void DiscordClient.application?.commands.set(Commands.map((Command) => Command.toJSON()))
   })
   DiscordClient.on('interactionCreate', (Interaction) => {
-    RunGuarded(() => HandleInteraction(Interaction), (CaughtError) => Logger.error({ message: 'Discord interaction handler failed', Error: CaughtError }))
+    RunGuarded(() => HandleInteraction(Interaction), (CaughtError) => {
+      Logger.error({ message: 'Discord interaction handler failed', Error: CaughtError })
+      RunGuarded(() => ReplyInteractionFailure(Interaction), (RecoveryError) => Logger.error({ message: 'Discord interaction failure response failed', Error: RecoveryError }))
+    })
   })
+  async function ReplyInteractionFailure(Interaction: Interaction): Promise<void> {
+    if (!Interaction.isRepliable() || Interaction.replied) return
+    const Content = Message(Database.LanguageFor('discord', Interaction.user.id), 'failed')
+    await ReplyWithFailure({
+      Deferred: Interaction.deferred,
+      Replied: Interaction.replied,
+      EditReply: async (ReplyContent) => { await Interaction.editReply({ content: ReplyContent, components: [] }) },
+      Reply: async (ReplyContent) => { await Interaction.reply({ content: ReplyContent, ephemeral: true }) }
+    }, Content)
+  }
   async function HandleInteraction(Interaction: Interaction): Promise<void> {
     if (Interaction.isButton() && (Interaction.customId.startsWith('forget-confirm:') || Interaction.customId.startsWith('forget-cancel:'))) {
       const [Operation, Id] = Interaction.customId.split(':', 2)
@@ -122,7 +136,8 @@ export function CreateDiscord(Token: string, Database: NotifierDatabase, ListRep
       : Database.LanguageFor('discord', Interaction.user.id)
     async function Reply(Content: string): Promise<void> {
       if (Interaction.isRepliable()) {
-        await Interaction.reply({ content: Content, ephemeral: true })
+        if (Interaction.deferred) await Interaction.editReply({ content: Content, components: [] })
+        else await Interaction.reply({ content: Content, ephemeral: true })
       }
     }
     if (Interaction.commandName === 'language') {
@@ -149,6 +164,8 @@ export function CreateDiscord(Token: string, Database: NotifierDatabase, ListRep
       await Reply(Message(Language, 'forbidden'))
       return
     }
+    const RequiresRemoteLookup = Interaction.commandName === 'routes' || Interaction.commandName === 'subscribe' || Interaction.commandName === 'unsubscribe'
+    if (RequiresRemoteLookup) await Interaction.deferReply({ ephemeral: true })
     if (Interaction.commandName === 'routes') {
       if (Interaction.guild === null) {
         await Reply(Message(Language, 'routesGuildOnly'))
@@ -182,7 +199,8 @@ export function CreateDiscord(Token: string, Database: NotifierDatabase, ListRep
         : Interaction.commandName === 'dm' ? 'dm-enable' : 'subscribe'
     const SourceId = IsDirectMessage ? Interaction.user.id : Interaction.channelId
     const Page = Selector.Create({ Action, ExternalId, IncludePrerelease: Interaction.options.getBoolean('prerelease') ?? false, OwnerId: Interaction.user.id, SourceId, TopicId: null })
-    await Interaction.reply({ components: Components(Page), ephemeral: true })
+    if (Interaction.deferred) await Interaction.editReply({ components: Components(Page) })
+    else await Interaction.reply({ components: Components(Page), ephemeral: true })
   }
   void DiscordClient.login(Token)
   return {
