@@ -2,13 +2,13 @@ import { ParseRepository, RepositorySlug, type Repository } from '@webhook-noti/
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-const Required = (Name: string): string => {
+function Required(Name: string): string {
   const Value = process.env[Name]?.trim()
   if (Value === undefined || Value.length === 0) throw new Error(`${Name} is required`)
   return Value
 }
 
-const Secret = (Name: string, RequiredSecret: boolean): string | undefined => {
+function Secret(Name: string, RequiredSecret: boolean): string | undefined {
   const Path = process.env[`${Name}_FILE`]?.trim()
   if (Path === undefined || Path.length === 0) {
     if (RequiredSecret) throw new Error(`${Name}_FILE is required`)
@@ -20,7 +20,7 @@ const Secret = (Name: string, RequiredSecret: boolean): string | undefined => {
   return Value
 }
 
-const AllowedRepositories = (Value: string): Repository[] => {
+function AllowedRepositories(Value: string): Repository[] {
   const Repositories = Value.split(',').map(ParseRepository)
   if (Repositories.length === 0 || Repositories.some((Repository) => Repository === null)) {
     throw new Error('ALLOWED_REPOSITORIES must be a comma-separated owner/repository list')
@@ -41,7 +41,7 @@ export interface Environment {
   WebhookPath: string
 }
 
-export const GetEnvironment = (): Environment => {
+export function GetEnvironment(): Environment {
   const Port = Number(process.env.PORT ?? '3000')
   if (!Number.isSafeInteger(Port) || Port < 1 || Port > 65_535) throw new Error('PORT must be a valid TCP port')
   const WebhookPath = process.env.WEBHOOK_PATH?.trim() || '/webhook/github'

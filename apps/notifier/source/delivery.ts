@@ -5,7 +5,7 @@ export interface PlatformNotifier {
   Send(Destination: Destination, Content: string): Promise<void>
 }
 
-const Retry = async (Operation: () => Promise<void>): Promise<void> => {
+async function Retry(Operation: () => Promise<void>): Promise<void> {
   let LastError: unknown
   for (const Delay of [0, 250, 1_000] as const) {
     if (Delay > 0) await new Promise<void>((Resolve) => setTimeout(Resolve, Delay))
@@ -19,13 +19,13 @@ const Retry = async (Operation: () => Promise<void>): Promise<void> => {
   throw LastError
 }
 
-export const Deliver = async (
+export async function Deliver(
   Database: NotifierDatabase,
   Notifiers: Map<Destination['Platform'], PlatformNotifier>,
   Destination: Destination,
   DeliveryId: string,
   Message: string
-): Promise<void> => {
+): Promise<void> {
   const Notifier = Notifiers.get(Destination.Platform)
   if (Notifier === undefined) {
     Database.RecordAttempt(Destination.Id, DeliveryId, 'failed', 'Platform bot is disabled')

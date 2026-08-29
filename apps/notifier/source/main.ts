@@ -8,7 +8,7 @@ import { GetEnvironment } from './env.js'
 import { GithubReferenceResolver } from './github.js'
 import { CreateTelegram } from './telegram.js'
 
-const ReadBody = async (Request: IncomingMessage): Promise<string> => {
+async function ReadBody(Request: IncomingMessage): Promise<string> {
   const Chunks: Buffer[] = []
   let Size = 0
   for await (const Chunk of Request as AsyncIterable<Buffer>) {
@@ -20,7 +20,7 @@ const ReadBody = async (Request: IncomingMessage): Promise<string> => {
   return Buffer.concat(Chunks).toString('utf8')
 }
 
-const ReleaseFromPayload = (Payload: unknown): Release | null => {
+function ReleaseFromPayload(Payload: unknown): Release | null {
   if (typeof Payload !== 'object' || Payload === null) return null
   // Mirrors the GitHub release webhook JSON payload, whose keys are fixed by GitHub's API.
   // oxlint-disable-next-line crackle/pascal-case
@@ -47,7 +47,7 @@ if (Config.TelegramToken !== undefined) Notifiers.set('telegram', CreateTelegram
 const WebhooksClient = new Webhooks({ secret: Config.GithubWebhookSecret })
 const ResolveReference = GithubReferenceResolver(Config.GithubToken)
 
-const HandleRequest = async (Request: IncomingMessage, Response: ServerResponse): Promise<void> => {
+async function HandleRequest(Request: IncomingMessage, Response: ServerResponse): Promise<void> {
   if (Request.method === 'GET' && Request.url === '/healthz') {
     Response.writeHead(200).end('ok')
     return

@@ -29,4 +29,6 @@ const Messages = {
 
 export type MessageKey = keyof typeof Messages.en
 
-export const Message = (Language: Language, Key: MessageKey): string => Messages[Language][Key]
+export function Message(Language: Language, Key: MessageKey): string {
+  return Messages[Language][Key]
+}

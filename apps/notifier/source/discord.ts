@@ -11,7 +11,7 @@ const Commands = [
   new SlashCommandBuilder().setName('dm').setDescription('Enable or disable direct-message releases').addBooleanOption((Option) => Option.setName('enabled').setDescription('Enable direct messages').setRequired(true))
 ]
 
-const Components = (Page: SelectionPage): ActionRowBuilder<StringSelectMenuBuilder | ButtonBuilder>[] => {
+function Components(Page: SelectionPage): ActionRowBuilder<StringSelectMenuBuilder | ButtonBuilder>[] {
   const Rows: ActionRowBuilder<StringSelectMenuBuilder | ButtonBuilder>[] = [
     new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(new StringSelectMenuBuilder()
       .setCustomId(`repository-select:${Page.Id}`)
@@ -28,7 +28,7 @@ const Components = (Page: SelectionPage): ActionRowBuilder<StringSelectMenuBuild
   return Rows
 }
 
-export const CreateDiscord = (Token: string, Database: NotifierDatabase, Repositories: Repository[]): PlatformNotifier => {
+export function CreateDiscord(Token: string, Database: NotifierDatabase, Repositories: Repository[]): PlatformNotifier {
   const DiscordClient = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.DirectMessages] })
   const Selector = new RepositorySelector(Repositories)
   DiscordClient.once('ready', () => {
@@ -37,7 +37,7 @@ export const CreateDiscord = (Token: string, Database: NotifierDatabase, Reposit
   DiscordClient.on('interactionCreate', (Interaction) => {
     void HandleInteraction(Interaction)
   })
-  const HandleInteraction = async (Interaction: Interaction): Promise<void> => {
+  async function HandleInteraction(Interaction: Interaction): Promise<void> {
     if (Interaction.isButton() || Interaction.isStringSelectMenu()) {
       const [Operation, Id] = Interaction.customId.split(':', 2)
       if (Id === undefined || !['repository-select', 'repository-previous', 'repository-next'].includes(Operation ?? '')) return
@@ -79,7 +79,11 @@ export const CreateDiscord = (Token: string, Database: NotifierDatabase, Reposit
     const Language = Interaction.commandName === 'language'
       ? Interaction.options.getString('value') === 'ko' ? 'ko' : 'en'
       : Database.LanguageFor('discord', Interaction.user.id)
-    const Reply = async (Content: string): Promise<void> => { await Interaction.reply({ content: Content, ephemeral: true }) }
+    async function Reply(Content: string): Promise<void> {
+      if (Interaction.isRepliable()) {
+        await Interaction.reply({ content: Content, ephemeral: true })
+      }
+    }
     if (Interaction.commandName === 'language') {
       Database.SetLanguage('discord', Interaction.user.id, Language)
       await Reply(Message(Language, 'languageSaved'))

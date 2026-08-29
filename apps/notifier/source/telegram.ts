@@ -4,22 +4,24 @@ import type { NotifierDatabase } from './database.js'
 import type { PlatformNotifier } from './delivery.js'
 import { RepositorySelector, type SelectionPage } from './selection.js'
 
-const ParseCommand = (Text: string): { Command: string, Argument: string | undefined } => {
+function ParseCommand(Text: string): { Command: string, Argument: string | undefined } {
   const [Command = '', Argument] = Text.trim().split(/\s+/, 2)
   return { Command: Command.replace(/@[^\s]+$/, '').toLowerCase(), Argument }
 }
 
-const Keyboard = (Page: SelectionPage): TelegramBot.InlineKeyboardMarkup => ({
-  inline_keyboard: [
-    ...Page.Repositories.map((Repository, Index) => [{ text: `${Repository.Owner}/${Repository.Name}`, callback_data: `repository-select:${Page.Id}:${Index}` }]),
-    ...(Page.PageCount > 1 ? [[
-      { text: 'Previous', callback_data: `repository-previous:${Page.Id}` },
-      { text: 'Next', callback_data: `repository-next:${Page.Id}` }
-    ]] : [])
-  ]
-})
+function Keyboard(Page: SelectionPage): TelegramBot.InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [
+      ...Page.Repositories.map((Repository, Index) => [{ text: `${Repository.Owner}/${Repository.Name}`, callback_data: `repository-select:${Page.Id}:${Index}` }]),
+      ...(Page.PageCount > 1 ? [[
+        { text: 'Previous', callback_data: `repository-previous:${Page.Id}` },
+        { text: 'Next', callback_data: `repository-next:${Page.Id}` }
+      ]] : [])
+    ]
+  }
+}
 
-export const CreateTelegram = (Token: string, Database: NotifierDatabase, Repositories: Repository[]): PlatformNotifier => {
+export function CreateTelegram(Token: string, Database: NotifierDatabase, Repositories: Repository[]): PlatformNotifier {
   const Bot = new TelegramBot(Token, { polling: true })
   const Selector = new RepositorySelector(Repositories)
   Bot.on('message', async (Update) => {
@@ -29,7 +31,9 @@ export const CreateTelegram = (Token: string, Database: NotifierDatabase, Reposi
     const Language: Language = Command === '/language'
       ? Argument === 'ko' ? 'ko' : 'en'
       : Database.LanguageFor('telegram', String(Update.from.id))
-    const Send = async (Text: string): Promise<void> => { await Bot.sendMessage(Update.chat.id, Text, { message_thread_id: Update.message_thread_id }) }
+    async function Send(Text: string): Promise<void> {
+      await Bot.sendMessage(Update.chat.id, Text, { message_thread_id: Update.message_thread_id })
+    }
     if (Command === '/language') {
       Database.SetLanguage('telegram', String(Update.from.id), Language)
       await Send(Message(Language, 'languageSaved'))
