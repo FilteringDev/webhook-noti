@@ -58,6 +58,22 @@ export function IsTransientError(CaughtError: unknown): boolean {
   return CaughtError instanceof Error && /(?:TLS|socket|network|connection).*(?:closed|disconnect|reset)|timed?\s*out/i.test(CaughtError.message)
 }
 
+export function IsPermanentDestinationError(CaughtError: unknown): boolean {
+  const Status = StatusCode(CaughtError)
+  if (Status === 403 || Status === 404) return true
+
+  const ErrorValue = ObjectValue(CaughtError)
+  const Code = ErrorValue?.code
+  if (typeof Code === 'number' && [50007, 10003, 10013, 50001, 50013].includes(Code)) return true
+
+  const RawMessage = ErrorValue?.message
+  const MessageText = CaughtError instanceof Error ? CaughtError.message : typeof RawMessage === 'string' ? RawMessage : ''
+  if (/Discord destination is unavailable/i.test(MessageText)) return true
+  if (/(?:bot was (?:blocked|kicked)|chat not found|group chat was upgraded|user is deactivated|chat write access denied|peer id invalid|cannot send messages to this user|unknown channel|unknown user|missing access|missing permissions)/i.test(MessageText)) return true
+
+  return false
+}
+
 export async function Retry(Operation: () => Promise<void>, OnFailure: (Attempt: number, CaughtError: unknown) => void, Delays: readonly number[] = RetryDelaysMs): Promise<void> {
   let LastError: unknown
   for (let Attempt = 0; Attempt <= Delays.length; Attempt += 1) {
@@ -102,5 +118,9 @@ export async function Deliver(
   } catch (CaughtError) {
     Record('failed', CaughtError instanceof Error ? CaughtError.message : 'Unknown delivery error')
     Logger.error({ message: 'Delivery failed after retries', ReleaseKey, DestinationId: Destination.Id, Platform: Destination.Platform, Error: CaughtError })
+    if (IsPermanentDestinationError(CaughtError)) {
+      Database.ForgetDestination(Destination)
+      Logger.info({ message: 'Automatically removed unreachable destination', DestinationId: Destination.Id, Platform: Destination.Platform, ExternalId: Destination.ExternalId, Kind: Destination.Kind })
+    }
   }
 }

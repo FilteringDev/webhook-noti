@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { RunGuarded } from '../../../apps/notifier/source/async-guard.js'
-import { IsTransientError, Retry } from '../../../apps/notifier/source/delivery.js'
+import { IsPermanentDestinationError, IsTransientError, Retry } from '../../../apps/notifier/source/delivery.js'
 import { PollingErrorDetails } from '../../../apps/notifier/source/telegram.js'
 
 test('reports rejected async event handlers without leaking the rejection', async () => {
@@ -82,4 +82,16 @@ test('keeps transient Telegram polling errors under the library retry loop', () 
     Status: undefined
   })
   assert.deepEqual(PollingErrorDetails(null), { Code: undefined, Detail: 'null', Status: undefined })
+})
+
+test('identifies permanent destination errors for Telegram and Discord', () => {
+  assert.equal(IsPermanentDestinationError(Object.assign(new Error('ETELEGRAM: 403 Forbidden: bot was blocked by the user'), { statusCode: 403 })), true)
+  assert.equal(IsPermanentDestinationError(Object.assign(new Error('ETELEGRAM: 403 Forbidden: bot was kicked from the group chat'), { statusCode: 403 })), true)
+  assert.equal(IsPermanentDestinationError(Object.assign(new Error('ETELEGRAM: 400 Bad Request: chat not found'), { statusCode: 400 })), true)
+  assert.equal(IsPermanentDestinationError(Object.assign(new Error('Cannot send messages to this user'), { code: 50007, status: 403 })), true)
+  assert.equal(IsPermanentDestinationError(Object.assign(new Error('Unknown Channel'), { code: 10003, status: 404 })), true)
+  assert.equal(IsPermanentDestinationError(new Error('Discord destination is unavailable')), true)
+
+  assert.equal(IsPermanentDestinationError(Object.assign(new Error('Internal Server Error'), { statusCode: 500 })), false)
+  assert.equal(IsPermanentDestinationError(Object.assign(new Error('socket disconnected'), { code: 'ECONNRESET' })), false)
 })

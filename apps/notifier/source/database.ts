@@ -184,6 +184,17 @@ export class NotifierDatabase {
     this.#Persist()
   }
 
+  ForgetDestination(Destination: Destination): void {
+    if (Destination.DirectMessage) {
+      this.ForgetDirectMessage(Destination.Platform, Destination.ExternalId)
+    } else if (Destination.Platform === 'telegram') {
+      this.ForgetTelegramChat(Destination.ExternalId)
+    } else {
+      this.#Database.run('DELETE FROM destinations WHERE platform = ? AND external_id = ?', ['discord', Destination.ExternalId])
+      this.#Persist()
+    }
+  }
+
   DestinationsFor(Repository: Repository, IsPrerelease: boolean): Destination[] {
     const Statement = this.#Database.prepare([
       'SELECT id, platform, kind, external_id, topic_id, owner_id, language, direct_message, include_prerelease',
