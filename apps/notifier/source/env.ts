@@ -36,6 +36,7 @@ export interface Environment {
   GithubAppId: string
   GithubAppPrivateKey: string
   GithubWebhookSecret: string
+  GlobalpingApiToken: string
   Host: string
   Port: number
   SocksProxyUrl: string | undefined
@@ -58,6 +59,7 @@ export function GetEnvironment(): Environment {
     GithubAppId: Required('GITHUB_APP_ID'),
     GithubAppPrivateKey: Secret('GITHUB_APP_PRIVATE_KEY', true) as string,
     GithubWebhookSecret: Secret('GITHUB_WEBHOOK_SECRET', true) as string,
+    GlobalpingApiToken: Secret('GLOBALPING_API_TOKEN', true) as string,
     Host: process.env.HOST?.trim() || '0.0.0.0',
     Port,
     SocksProxyUrl: process.env.SOCKS_PROXY_URL?.trim() || undefined,

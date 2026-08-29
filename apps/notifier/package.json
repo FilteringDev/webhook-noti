@@ -13,7 +13,6 @@
     "@octokit/auth-app": "^8.3.0",
     "@octokit/rest": "^22.0.0",
     "@octokit/webhooks": "^14.1.0",
-    "@typescriptprime/securereq": "^2.0.2",
     "@webhook-noti/core": "workspace:*",
     "discord.js": "^14.22.1",
     "global-agent": "^3.0.0",

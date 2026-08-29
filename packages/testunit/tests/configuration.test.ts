@@ -7,7 +7,7 @@ import { NotifierDatabase } from '../../../apps/notifier/source/database.js'
 import { GetEnvironment } from '../../../apps/notifier/source/env.js'
 import { RepositorySelector } from '../../../apps/notifier/source/selection.js'
 
-const SensitiveNames = ['GITHUB_APP_PRIVATE_KEY', 'GITHUB_WEBHOOK_SECRET', 'DISCORD_BOT_TOKEN', 'TELEGRAM_BOT_TOKEN'] as const
+const SensitiveNames = ['GITHUB_APP_PRIVATE_KEY', 'GITHUB_WEBHOOK_SECRET', 'GLOBALPING_API_TOKEN', 'DISCORD_BOT_TOKEN', 'TELEGRAM_BOT_TOKEN'] as const
 
 test('loads sensitive settings only from non-empty files', () => {
   const Original = new Map<string, string | undefined>([
@@ -25,23 +25,28 @@ test('loads sensitive settings only from non-empty files', () => {
     delete process.env.GITHUB_APP_ID
     process.env.GITHUB_APP_PRIVATE_KEY = 'plaintext-is-not-accepted'
     process.env.GITHUB_WEBHOOK_SECRET = 'plaintext-is-not-accepted'
+    process.env.GLOBALPING_API_TOKEN = 'plaintext-is-not-accepted'
     assert.throws(GetEnvironment, /GITHUB_APP_ID is required/)
 
     const GithubAppPrivateKeyPath = join(Directory, 'github-app-private-key')
     const WebhookSecretPath = join(Directory, 'webhook-secret')
+    const GlobalpingApiTokenPath = join(Directory, 'globalping-api-token')
     const DiscordTokenPath = join(Directory, 'discord-token')
     writeFileSync(GithubAppPrivateKeyPath, 'github-app-private-key\n')
     writeFileSync(WebhookSecretPath, 'webhook-secret\n')
+    writeFileSync(GlobalpingApiTokenPath, 'globalping-api-token\n')
     writeFileSync(DiscordTokenPath, '')
     process.env.GITHUB_APP_ID = '12345'
     process.env.GITHUB_APP_PRIVATE_KEY_FILE = GithubAppPrivateKeyPath
     process.env.GITHUB_WEBHOOK_SECRET_FILE = WebhookSecretPath
+    process.env.GLOBALPING_API_TOKEN_FILE = GlobalpingApiTokenPath
     process.env.DISCORD_BOT_TOKEN_FILE = DiscordTokenPath
 
     const Environment = GetEnvironment()
     assert.equal(Environment.GithubAppId, '12345')
     assert.equal(Environment.GithubAppPrivateKey, 'github-app-private-key')
     assert.equal(Environment.GithubWebhookSecret, 'webhook-secret')
+    assert.equal(Environment.GlobalpingApiToken, 'globalping-api-token')
     assert.equal(Environment.DiscordToken, undefined)
     assert.deepEqual(Environment.Repositories, [{ Owner: 'acme', Name: 'widget' }, { Owner: 'acme', Name: 'api' }])
   } finally {

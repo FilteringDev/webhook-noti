@@ -5,7 +5,7 @@ GitHub `release.published` webhook을 검증하고 Discord 및 Telegram에 relea
 ## 시작하기
 
 1. `.env.example`을 기준으로 `.env`를 만들고 `ALLOWED_REPOSITORIES`에 배포에서 허용할 `owner/repository` 목록만 설정합니다. 이 목록 밖의 webhook과 구독은 거부됩니다.
-2. `.env`에 GitHub App의 `GITHUB_APP_ID`를 설정하고, `secrets/` 디렉터리에 `github_app_private_key`, `github_webhook_secret`, `discord_bot_token`, `telegram_bot_token` 파일을 만듭니다. 각 파일에는 해당 secret 하나만 저장합니다. 사용하지 않는 Discord 또는 Telegram 플랫폼 파일은 비워 둘 수 있습니다.
+2. `.env`에 GitHub App의 `GITHUB_APP_ID`를 설정하고, `secrets/` 디렉터리에 `github_app_private_key`, `github_webhook_secret`, `globalping_api_token`, `discord_bot_token`, `telegram_bot_token` 파일을 만듭니다. 각 파일에는 해당 secret 하나만 저장합니다. 사용하지 않는 Discord 또는 Telegram 플랫폼 파일은 비워 둘 수 있습니다.
 3. `chmod 600 secrets/*`로 host의 secret 파일 권한을 제한합니다. access token, webhook secret, bot token은 환경변수로 제공할 수 없으며 Compose가 `/run/secrets`에 mount한 파일에서만 읽습니다.
 4. `docker compose up -d --build`로 시작합니다.
 5. reverse proxy가 notifier의 `http://notifier:3000/webhook/github`으로 전달하도록 설정합니다. GitHub webhook URL에는 proxy의 HTTPS URL을 등록하고 event는 **Releases**만 선택합니다.
@@ -20,6 +20,7 @@ Compose는 host port를 열지 않습니다. proxy와 notifier를 같은 interna
 | `GITHUB_APP_ID` | 예 | - | notifier용 GitHub App ID |
 | `GITHUB_APP_PRIVATE_KEY_FILE` | 예 (secret 파일) | - | GitHub App private key가 담긴 파일 경로 |
 | `GITHUB_WEBHOOK_SECRET_FILE` | 예 (secret 파일) | - | GitHub webhook 서명 검증에 쓰이는 secret 파일 경로 |
+| `GLOBALPING_API_TOKEN_FILE` | 예 (secret 파일) | - | jsDelivr purge 검증용 Globalping API access token 파일 경로 |
 | `DISCORD_BOT_TOKEN_FILE` | 아니오 (secret 파일) | - | Discord bot token 파일 경로. 비어 있으면 Discord 연동 비활성화 |
 | `TELEGRAM_BOT_TOKEN_FILE` | 아니오 (secret 파일) | - | Telegram bot token 파일 경로. 비어 있으면 Telegram 연동 비활성화 |
 | `PORT` | 아니오 | `3000` | HTTP 서버 listening port |
@@ -28,7 +29,7 @@ Compose는 host port를 열지 않습니다. proxy와 notifier를 같은 interna
 | `DATA_DIR` | 아니오 | `/var/lib/webhook-noti` | SQLite database 파일을 저장할 디렉터리 |
 | `SOCKS_PROXY_URL` | 아니오 | - | GitHub REST, Discord(REST + Gateway), Telegram API 트래픽을 라우팅할 SOCKS 프록시 URL |
 
-`GITHUB_APP_PRIVATE_KEY_FILE`, `GITHUB_WEBHOOK_SECRET_FILE`, `DISCORD_BOT_TOKEN_FILE`, `TELEGRAM_BOT_TOKEN_FILE`은 secret의 값을 직접 담는 환경변수가 아니라, secret이 저장된 파일의 **경로**를 가리키는 환경변수입니다.
+`GITHUB_APP_PRIVATE_KEY_FILE`, `GITHUB_WEBHOOK_SECRET_FILE`, `GLOBALPING_API_TOKEN_FILE`, `DISCORD_BOT_TOKEN_FILE`, `TELEGRAM_BOT_TOKEN_FILE`은 secret의 값을 직접 담는 환경변수가 아니라, secret이 저장된 파일의 **경로**를 가리키는 환경변수입니다.
 
 ### SOCKS 프록시
 
@@ -38,7 +39,7 @@ Compose는 host port를 열지 않습니다. proxy와 notifier를 같은 interna
 
 GitHub App은 `ALLOWED_REPOSITORIES`의 모든 저장소에 설치되어야 합니다. Repository permissions로 Metadata Read, Contents Read, Issues Read, Actions Read/Write가 필요합니다. release 본문의 `#123`과 `owner/repo#123`을 issue/PR로 판별하고, release의 대상 commit에서 `package.json`을 읽어 `--SubscriptionUrl` 사용 여부를 확인합니다.
 
-userscript repository는 release commit의 script에 `--SubscriptionUrl`이 있을 때로 판별합니다. 이 경우 notifier는 release workflow의 `Purge jsdelivr cache` job 성공을 기다립니다. job이 실패하면 해당 job만 재실행하고, `@typescriptprime/securereq`로 Subscription URL의 HTTPS 응답을 확인한 뒤 Discord 및 Telegram으로 전달합니다. purge가 완료되지 않거나 URL 확인에 실패하면 알림은 전달하지 않습니다.
+userscript repository는 release commit의 script에 `--SubscriptionUrl`이 있을 때로 판별합니다. 이 경우 notifier는 release workflow의 `Purge jsdelivr cache` job 성공을 기다립니다. job이 실패하면 해당 job만 재실행하고, 인증된 Globalping World HTTP 측정에서 Subscription URL의 HTTPS 응답이 한 곳 이상 `2xx`인지 확인한 뒤 Discord 및 Telegram으로 전달합니다. purge가 완료되지 않거나 URL 확인에 실패하면 알림은 전달하지 않습니다.
 
 Discord bot에는 Guilds/Direct Messages intents 및 대상 채널의 View Channel, Send Messages 권한이 필요합니다. 채널 구독은 대상 채널의 `Manage Channels` 권한이 있는 사용자만 설정할 수 있습니다.
 
@@ -84,4 +85,4 @@ pnpm test
 
 서비스는 TypeScript source를 `tsx`로 직접 실행합니다. 개발 중에는 `pnpm dev`, Node debugger로 실행하려면 `pnpm debug`를 사용합니다.
 
-개발 실행도 private key와 bot token, webhook secret은 파일 전용입니다. `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY_FILE`, `GITHUB_WEBHOOK_SECRET_FILE`, `DISCORD_BOT_TOKEN_FILE`, `TELEGRAM_BOT_TOKEN_FILE`을 설정하고, `ALLOWED_REPOSITORIES`를 함께 제공합니다. 필요하면 `PORT`, `HOST`, `WEBHOOK_PATH`, `DATA_DIR`, `SOCKS_PROXY_URL`도 함께 지정할 수 있습니다 (전체 목록은 위 [환경변수](#환경변수) 표 참고).
+개발 실행도 private key와 bot token, webhook secret, Globalping access token은 파일 전용입니다. `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY_FILE`, `GITHUB_WEBHOOK_SECRET_FILE`, `GLOBALPING_API_TOKEN_FILE`, `DISCORD_BOT_TOKEN_FILE`, `TELEGRAM_BOT_TOKEN_FILE`을 설정하고, `ALLOWED_REPOSITORIES`를 함께 제공합니다. 필요하면 `PORT`, `HOST`, `WEBHOOK_PATH`, `DATA_DIR`, `SOCKS_PROXY_URL`도 함께 지정할 수 있습니다 (전체 목록은 위 [환경변수](#환경변수) 표 참고).
