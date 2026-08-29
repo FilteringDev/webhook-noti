@@ -1,5 +1,6 @@
 import { Message, type Destination, type Repository } from '@webhook-noti/core'
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, GatewayIntentBits, PermissionFlagsBits, SlashCommandBuilder, StringSelectMenuBuilder, type Interaction } from 'discord.js'
+import type { Dispatcher } from 'undici'
 import type { NotifierDatabase } from './database.js'
 import type { PlatformNotifier } from './delivery.js'
 import { RepositorySelector, type RepositoryAction, type SelectionPage } from './selection.js'
@@ -28,8 +29,11 @@ function Components(Page: SelectionPage): ActionRowBuilder<StringSelectMenuBuild
   return Rows
 }
 
-export function CreateDiscord(Token: string, Database: NotifierDatabase, Repositories: Repository[]): PlatformNotifier {
-  const DiscordClient = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.DirectMessages] })
+export function CreateDiscord(Token: string, Database: NotifierDatabase, Repositories: Repository[], ProxyDispatcher?: Dispatcher): PlatformNotifier {
+  const DiscordClient = new Client({
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.DirectMessages],
+    ...(ProxyDispatcher === undefined ? {} : { rest: { agent: ProxyDispatcher } })
+  })
   const Selector = new RepositorySelector(Repositories)
   DiscordClient.once('ready', () => {
     void DiscordClient.application?.commands.set(Commands.map((Command) => Command.toJSON()))

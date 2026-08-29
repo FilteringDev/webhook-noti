@@ -1,11 +1,14 @@
 import { SafeReleaseMessage, RepositorySlug, type Release } from '@webhook-noti/core'
 import { Webhooks } from '@octokit/webhooks'
+import { bootstrap } from 'global-agent'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import { ProxyAgent } from 'undici'
 import { NotifierDatabase } from './database.js'
 import { Deliver, type PlatformNotifier } from './delivery.js'
 import { CreateDiscord } from './discord.js'
 import { GetEnvironment } from './env.js'
 import { GithubReferenceResolver } from './github.js'
+import { StartSocksBridge } from './socks-bridge.js'
 import { CreateTelegram } from './telegram.js'
 
 async function ReadBody(Request: IncomingMessage): Promise<string> {
@@ -41,11 +44,23 @@ function ReleaseFromPayload(Payload: unknown): Release | null {
 
 const Config = GetEnvironment()
 const Database = await NotifierDatabase.Open(Config.DataDirectory)
+const SocksBridge = Config.SocksProxyUrl === undefined ? undefined : await StartSocksBridge(Config.SocksProxyUrl)
+const ProxyDispatcher = SocksBridge === undefined ? undefined : new ProxyAgent(SocksBridge.Url)
+if (SocksBridge !== undefined) {
+  // Routes the Discord Gateway WebSocket login through the bridge too, since @discordjs/ws has no direct proxy hook.
+  bootstrap()
+  // global-agent's contract requires this exact casing (globalThis.GLOBAL_AGENT.{HTTP,HTTPS}_PROXY).
+  /* oxlint-disable crackle/pascal-case */
+  const GlobalAgentConfig = (globalThis as unknown as { GLOBAL_AGENT: { HTTP_PROXY: string | null, HTTPS_PROXY: string | null } }).GLOBAL_AGENT
+  GlobalAgentConfig.HTTP_PROXY = SocksBridge.Url
+  GlobalAgentConfig.HTTPS_PROXY = SocksBridge.Url
+  /* oxlint-enable crackle/pascal-case */
+}
 const Notifiers = new Map<Release['Repository'] extends never ? never : 'discord' | 'telegram', PlatformNotifier>()
-if (Config.DiscordToken !== undefined) Notifiers.set('discord', CreateDiscord(Config.DiscordToken, Database, Config.Repositories))
-if (Config.TelegramToken !== undefined) Notifiers.set('telegram', CreateTelegram(Config.TelegramToken, Database, Config.Repositories))
+if (Config.DiscordToken !== undefined) Notifiers.set('discord', CreateDiscord(Config.DiscordToken, Database, Config.Repositories, ProxyDispatcher))
+if (Config.TelegramToken !== undefined) Notifiers.set('telegram', CreateTelegram(Config.TelegramToken, Database, Config.Repositories, SocksBridge?.Url))
 const WebhooksClient = new Webhooks({ secret: Config.GithubWebhookSecret })
-const ResolveReference = GithubReferenceResolver(Config.GithubToken)
+const ResolveReference = GithubReferenceResolver(Config.GithubToken, ProxyDispatcher)
 
 async function HandleRequest(Request: IncomingMessage, Response: ServerResponse): Promise<void> {
   if (Request.method === 'GET' && Request.url === '/healthz') {
@@ -96,4 +111,7 @@ const Server = createServer((Request, Response) => {
 })
 
 Server.listen(Config.Port, Config.Host, () => console.log(`Listening on ${Config.Host}:${Config.Port}`))
-process.on('SIGTERM', () => Server.close(() => Database.Close()))
+process.on('SIGTERM', () => Server.close(() => {
+  Database.Close()
+  void SocksBridge?.Close()
+}))

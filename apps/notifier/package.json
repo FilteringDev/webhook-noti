@@ -14,11 +14,16 @@
     "@octokit/webhooks": "^14.1.0",
     "@webhook-noti/core": "workspace:*",
     "discord.js": "^14.22.1",
+    "global-agent": "^3.0.0",
+    "https-proxy-agent": "^7.0.6",
     "node-telegram-bot-api": "^0.66.0",
+    "socks": "^2.8.3",
     "sql.js": "^1.14.2",
-    "tsx": "^4.20.5"
+    "tsx": "^4.20.5",
+    "undici": "^6.27.0"
   },
   "devDependencies": {
+    "@types/global-agent": "^3.0.0",
     "@types/node-telegram-bot-api": "^0.64.9",
     "@types/sql.js": "^1.4.11"
   }

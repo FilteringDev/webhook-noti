@@ -37,6 +37,7 @@ export interface Environment {
   GithubWebhookSecret: string
   Host: string
   Port: number
+  SocksProxyUrl: string | undefined
   TelegramToken: string | undefined
   WebhookPath: string
 }
@@ -57,6 +58,7 @@ export function GetEnvironment(): Environment {
     GithubWebhookSecret: Secret('GITHUB_WEBHOOK_SECRET', true) as string,
     Host: process.env.HOST?.trim() || '0.0.0.0',
     Port,
+    SocksProxyUrl: process.env.SOCKS_PROXY_URL?.trim() || undefined,
     TelegramToken: Secret('TELEGRAM_BOT_TOKEN', false),
     WebhookPath
   }

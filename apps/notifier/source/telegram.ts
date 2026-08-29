@@ -1,4 +1,5 @@
 import { Message, type Destination, type Language, type Repository } from '@webhook-noti/core'
+import { HttpsProxyAgent } from 'https-proxy-agent'
 import TelegramBot from 'node-telegram-bot-api'
 import type { NotifierDatabase } from './database.js'
 import type { PlatformNotifier } from './delivery.js'
@@ -21,8 +22,13 @@ function Keyboard(Page: SelectionPage): TelegramBot.InlineKeyboardMarkup {
   }
 }
 
-export function CreateTelegram(Token: string, Database: NotifierDatabase, Repositories: Repository[]): PlatformNotifier {
-  const Bot = new TelegramBot(Token, { polling: true })
+export function CreateTelegram(Token: string, Database: NotifierDatabase, Repositories: Repository[], ProxyUrl?: string): PlatformNotifier {
+  // @types/request's `Options` union requires a `url`/`uri` field that a bare `agent` override never needs.
+  const RequestOptions = ProxyUrl === undefined ? undefined : { agent: new HttpsProxyAgent(ProxyUrl) } as unknown as TelegramBot.ConstructorOptions['request']
+  const Bot = new TelegramBot(Token, {
+    polling: true,
+    ...(RequestOptions === undefined ? {} : { request: RequestOptions })
+  })
   const Selector = new RepositorySelector(Repositories)
   Bot.on('message', async (Update) => {
     if (Update.text === undefined || Update.from === undefined) return
