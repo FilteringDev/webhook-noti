@@ -56,7 +56,7 @@ export function CreateTelegram(Token: string, Database: NotifierDatabase, Reposi
     const ExternalId = String(Update.chat.id)
     const TopicId = Update.message_thread_id ?? null
     const Action = Command === '/unsubscribe' ? 'unsubscribe' : Command === '/dm' ? 'dm-enable' : 'subscribe'
-    const Page = Selector.Create({ Action, ExternalId, IncludePrerelease: false, OwnerId: String(Update.from.id), TopicId })
+    const Page = Selector.Create({ Action, ExternalId, IncludePrerelease: false, OwnerId: String(Update.from.id), SourceId: ExternalId, TopicId })
     await Bot.sendMessage(Update.chat.id, 'Select a repository.', { message_thread_id: TopicId ?? undefined, reply_markup: Keyboard(Page) })
   })
   Bot.on('callback_query', async (Callback) => {
@@ -66,7 +66,7 @@ export function CreateTelegram(Token: string, Database: NotifierDatabase, Reposi
     const MessageValue = Callback.message
     const ExternalId = String(MessageValue.chat.id)
     const TopicId = MessageValue.message_thread_id ?? null
-    const Context = { ExternalId, IncludePrerelease: false, OwnerId: String(Callback.from.id), TopicId }
+    const Context = { OwnerId: String(Callback.from.id), SourceId: ExternalId, TopicId }
     const Language = Database.LanguageFor('telegram', String(Callback.from.id))
     const DirectMessage = MessageValue.chat.type === 'private'
     if (!DirectMessage) {
@@ -91,10 +91,10 @@ export function CreateTelegram(Token: string, Database: NotifierDatabase, Reposi
       return
     }
     let Result: Parameters<typeof Message>[1]
-    if (Selected.Action === 'unsubscribe') Result = Database.RemoveDestination('telegram', ExternalId, Selected.Repository, TopicId) ? 'unsubscribed' : 'failed'
+    if (Selected.Action === 'unsubscribe') Result = Database.RemoveDestination('telegram', Selected.ExternalId, Selected.Repository, Selected.TopicId) ? 'unsubscribed' : 'failed'
     else {
-      const Kind: Destination['Kind'] = DirectMessage ? 'telegram-dm' : TopicId === null ? 'telegram-chat' : 'telegram-topic'
-      Database.SaveDestination({ ExternalId, IncludePrerelease: Selected.IncludePrerelease, Kind, Language, OwnerId: String(Callback.from.id), Platform: 'telegram', Repository: Selected.Repository, TopicId })
+      const Kind: Destination['Kind'] = DirectMessage ? 'telegram-dm' : Selected.TopicId === null ? 'telegram-chat' : 'telegram-topic'
+      Database.SaveDestination({ ExternalId: Selected.ExternalId, IncludePrerelease: Selected.IncludePrerelease, Kind, Language, OwnerId: String(Callback.from.id), Platform: 'telegram', Repository: Selected.Repository, TopicId: Selected.TopicId })
       Result = Selected.Action === 'dm-enable' ? 'dmEnabled' : 'subscribed'
     }
     await Bot.editMessageText(Message(Language, Result), { chat_id: MessageValue.chat.id, message_id: MessageValue.message_id })

@@ -16,7 +16,7 @@ Compose는 host port를 열지 않습니다. proxy와 notifier를 같은 interna
 
 GitHub fine-grained PAT는 `ALLOWED_REPOSITORIES`의 모든 저장소에 대해 Metadata Read 및 Issues Read가 필요합니다. PAT는 release 본문의 `#123`과 `owner/repo#123`이 issue인지 PR인지 판별할 때만 사용합니다. 조회에 실패하면 issue URL로 안전하게 대체합니다.
 
-Discord bot에는 Guilds/Direct Messages intents 및 대상 채널의 View Channel, Send Messages 권한이 필요합니다. 채널 구독은 `Manage Channels` 권한이 있는 사용자만 설정할 수 있습니다.
+Discord bot에는 Guilds/Direct Messages intents 및 대상 채널의 View Channel, Send Messages 권한이 필요합니다. 채널 구독은 대상 채널의 `Manage Channels` 권한이 있는 사용자만 설정할 수 있습니다.
 
 Telegram bot은 BotFather에서 그룹 privacy mode를 해제해야 command를 안정적으로 받을 수 있습니다. 그룹과 forum topic의 구독은 해당 그룹 administrator만 설정할 수 있습니다.
 
@@ -24,8 +24,8 @@ Telegram bot은 BotFather에서 그룹 privacy mode를 해제해야 command를 �
 
 Discord slash commands:
 
-- `/subscribe prerelease:false`
-- `/unsubscribe`
+- `/subscribe channel:#channel prerelease:false`
+- `/unsubscribe channel:#channel`
 - `/language value:en|ko`
 - `/dm enabled:true`
 
@@ -36,7 +36,7 @@ Telegram commands:
 - `/language en` 또는 `/language ko`
 - `/dm`
 
-구독 관련 명령을 실행하면 deployment의 `ALLOWED_REPOSITORIES`에 있는 저장소만 선택 목록으로 표시됩니다. 목록이 길면 Previous/Next로 이동할 수 있으며, 사용자는 `owner/repository`를 입력할 필요가 없습니다. Telegram command를 forum topic에서 실행하면 해당 topic ID가 저장되어 release가 그 topic으로 전송됩니다. DM에서는 명령을 실행한 본인만 자신의 DM destination을 만들 수 있습니다.
+구독 관련 명령을 실행하면 deployment의 `ALLOWED_REPOSITORIES`에 있는 저장소만 선택 목록으로 표시됩니다. 목록이 길면 Previous/Next로 이동할 수 있으며, 사용자는 `owner/repository`를 입력할 필요가 없습니다. Discord에서 `channel`을 지정하면 선택한 저장소의 release가 해당 채널로 전송되고, 생략하면 명령을 실행한 현재 채널로 전송됩니다. Telegram command를 forum topic에서 실행하면 선택한 저장소와 해당 topic ID가 함께 저장되어 release가 그 topic으로 전송됩니다. DM에서는 명령을 실행한 본인만 자신의 DM destination을 만들 수 있습니다.
 
 ## 안전성 및 저장소
 

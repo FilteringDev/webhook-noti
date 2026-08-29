@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
+import { NotifierDatabase } from '../../../apps/notifier/source/database.js'
 import { GetEnvironment } from '../../../apps/notifier/source/env.js'
 import { RepositorySelector } from '../../../apps/notifier/source/selection.js'
 
@@ -54,17 +55,41 @@ test('selects only configured repositories and rejects mismatched callbacks', ()
     return { Owner: 'acme', Name: `repository-${Index}` }
   })
   const Selector = new RepositorySelector(Repositories)
-  const Context = { Action: 'subscribe' as const, ExternalId: 'destination', IncludePrerelease: false, OwnerId: 'owner', TopicId: null }
+  const Context = { Action: 'subscribe' as const, ExternalId: 'destination', IncludePrerelease: false, OwnerId: 'owner', SourceId: 'source', TopicId: null }
   const FirstPage = Selector.Create(Context)
   assert.equal(FirstPage.Repositories.length, 20)
   assert.equal(FirstPage.PageCount, 2)
   assert.equal(Selector.Select(FirstPage.Id, { ...Context, OwnerId: 'other-user' }, '0'), null)
+  assert.equal(Selector.Select(FirstPage.Id, { ...Context, SourceId: 'other-source' }, '0'), null)
   assert.equal(Selector.Select(FirstPage.Id, Context, '20'), null)
 
   const SecondPage = Selector.Next(FirstPage.Id, Context)
   assert.ok(SecondPage !== null)
   assert.equal(SecondPage.Repositories[0]?.Name, 'repository-9')
   const Selected = Selector.Select(FirstPage.Id, Context, '0')
-  assert.deepEqual(Selected, { Action: 'subscribe', IncludePrerelease: false, Repository: { Owner: 'acme', Name: 'repository-9' } })
+  assert.deepEqual(Selected, { Action: 'subscribe', ExternalId: 'destination', IncludePrerelease: false, Repository: { Owner: 'acme', Name: 'repository-9' }, TopicId: null })
   assert.equal(Selector.Select(FirstPage.Id, Context, '0'), null)
+})
+
+test('stores repository-specific channel and topic routes', async () => {
+  const Directory = mkdtempSync(join(tmpdir(), 'webhook-noti-'))
+  const RepositoryA = { Owner: 'acme', Name: 'api' }
+  const RepositoryB = { Owner: 'acme', Name: 'worker' }
+  try {
+    const Database = await NotifierDatabase.Open(Directory)
+    Database.SaveDestination({ ExternalId: 'discord-channel-a', IncludePrerelease: false, Kind: 'discord-channel', Language: 'en', OwnerId: 'discord-owner', Platform: 'discord', Repository: RepositoryA, TopicId: null })
+    Database.SaveDestination({ ExternalId: 'discord-channel-b', IncludePrerelease: false, Kind: 'discord-channel', Language: 'en', OwnerId: 'discord-owner', Platform: 'discord', Repository: RepositoryB, TopicId: null })
+    Database.SaveDestination({ ExternalId: 'telegram-chat', IncludePrerelease: false, Kind: 'telegram-topic', Language: 'ko', OwnerId: 'telegram-owner', Platform: 'telegram', Repository: RepositoryA, TopicId: 123 })
+
+    const RepositoryADestinations = Database.DestinationsFor(RepositoryA, false)
+    assert.equal(RepositoryADestinations.length, 2)
+    assert.equal(RepositoryADestinations.some((Destination) => Destination.Platform === 'discord' && Destination.ExternalId === 'discord-channel-a'), true)
+    assert.equal(RepositoryADestinations.some((Destination) => Destination.Platform === 'telegram' && Destination.ExternalId === 'telegram-chat' && Destination.TopicId === 123), true)
+
+    const RepositoryBDestinations = Database.DestinationsFor(RepositoryB, false)
+    assert.equal(RepositoryBDestinations.length, 1)
+    assert.equal(RepositoryBDestinations[0]?.ExternalId, 'discord-channel-b')
+  } finally {
+    rmSync(Directory, { force: true, recursive: true })
+  }
 })

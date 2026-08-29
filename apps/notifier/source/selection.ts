@@ -8,8 +8,11 @@ export interface SelectionContext {
   ExternalId: string
   IncludePrerelease: boolean
   OwnerId: string
+  SourceId: string
   TopicId: number | null
 }
+
+type SelectionValidationContext = Pick<SelectionContext, 'OwnerId' | 'SourceId' | 'TopicId'>
 
 export interface SelectionPage {
   Id: string
@@ -41,21 +44,21 @@ export class RepositorySelector {
     return this.#Page(Id)
   }
 
-  Previous(Id: string, Context: Omit<SelectionContext, 'Action'>): SelectionPage | null {
+  Previous(Id: string, Context: SelectionValidationContext): SelectionPage | null {
     const Selection = this.#Selection(Id, Context)
     if (Selection === null) return null
     Selection.Page = Math.max(0, Selection.Page - 1)
     return this.#Page(Id)
   }
 
-  Next(Id: string, Context: Omit<SelectionContext, 'Action'>): SelectionPage | null {
+  Next(Id: string, Context: SelectionValidationContext): SelectionPage | null {
     const Selection = this.#Selection(Id, Context)
     if (Selection === null) return null
     Selection.Page = Math.min(this.#PageCount() - 1, Selection.Page + 1)
     return this.#Page(Id)
   }
 
-  Select(Id: string, Context: Omit<SelectionContext, 'Action'>, Index: string): { Action: RepositoryAction, IncludePrerelease: boolean, Repository: Repository } | null {
+  Select(Id: string, Context: SelectionValidationContext, Index: string): { Action: RepositoryAction, ExternalId: string, IncludePrerelease: boolean, Repository: Repository, TopicId: number | null } | null {
     const Selection = this.#Selection(Id, Context)
     if (Selection === null || !/^(?:0|[1-9][0-9]*)$/.test(Index)) return null
     const PageIndex = Number(Index)
@@ -63,13 +66,13 @@ export class RepositorySelector {
     const Repository = this.#Repositories[Selection.Page * PageSize + PageIndex]
     if (Repository === undefined) return null
     this.#Selections.delete(Id)
-    return { Action: Selection.Action, IncludePrerelease: Selection.IncludePrerelease, Repository }
+    return { Action: Selection.Action, ExternalId: Selection.ExternalId, IncludePrerelease: Selection.IncludePrerelease, Repository, TopicId: Selection.TopicId }
   }
 
-  #Selection(Id: string, Context: Omit<SelectionContext, 'Action'>): Selection | null {
+  #Selection(Id: string, Context: SelectionValidationContext): Selection | null {
     this.#RemoveExpired()
     const Selection = this.#Selections.get(Id)
-    if (Selection === undefined || Selection.OwnerId !== Context.OwnerId || Selection.ExternalId !== Context.ExternalId || Selection.TopicId !== Context.TopicId) return null
+    if (Selection === undefined || Selection.OwnerId !== Context.OwnerId || Selection.SourceId !== Context.SourceId || Selection.TopicId !== Context.TopicId) return null
     return Selection
   }
 
