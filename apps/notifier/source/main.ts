@@ -1,5 +1,6 @@
 import { SafeReleaseMessage, RepositorySlug, type Release } from '@webhook-noti/core'
 import { Webhooks } from '@octokit/webhooks'
+import { consola } from 'consola'
 import { bootstrap } from 'global-agent'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { ProxyAgent } from 'undici'
@@ -11,6 +12,8 @@ import { GithubClient } from './github.js'
 import { WaitForPurge } from './purge.js'
 import { StartSocksBridge } from './socks-bridge.js'
 import { CreateTelegram } from './telegram.js'
+
+const Logger = consola.withTag('notifier')
 
 async function ReadBody(Request: IncomingMessage): Promise<string> {
   const Chunks: Buffer[] = []
@@ -44,87 +47,113 @@ function ReleaseFromPayload(Payload: unknown): Release | null {
   }
 }
 
-const Config = GetEnvironment()
-const Database = await NotifierDatabase.Open(Config.DataDirectory)
-const SocksBridge = Config.SocksProxyUrl === undefined ? undefined : await StartSocksBridge(Config.SocksProxyUrl)
-const ProxyDispatcher = SocksBridge === undefined ? undefined : new ProxyAgent(SocksBridge.Url)
-if (SocksBridge !== undefined) {
-  // Routes the Discord Gateway WebSocket login through the bridge too, since @discordjs/ws has no direct proxy hook.
-  bootstrap()
-  // global-agent's contract requires this exact casing (globalThis.GLOBAL_AGENT.{HTTP,HTTPS}_PROXY).
-  /* oxlint-disable crackle/pascal-case */
-  const GlobalAgentConfig = (globalThis as unknown as { GLOBAL_AGENT: { HTTP_PROXY: string | null, HTTPS_PROXY: string | null } }).GLOBAL_AGENT
-  GlobalAgentConfig.HTTP_PROXY = SocksBridge.Url
-  GlobalAgentConfig.HTTPS_PROXY = SocksBridge.Url
-  /* oxlint-enable crackle/pascal-case */
-}
-const Notifiers = new Map<Release['Repository'] extends never ? never : 'discord' | 'telegram', PlatformNotifier>()
-if (Config.DiscordToken !== undefined) Notifiers.set('discord', CreateDiscord(Config.DiscordToken, Database, Config.Repositories, ProxyDispatcher))
-if (Config.TelegramToken !== undefined) Notifiers.set('telegram', CreateTelegram(Config.TelegramToken, Database, Config.Repositories, SocksBridge?.Url))
-const WebhooksClient = new Webhooks({ secret: Config.GithubWebhookSecret })
-const Github = new GithubClient(Config.GithubAppId, Config.GithubAppPrivateKey, ProxyDispatcher)
-const ResolveReference = Github.ResolveReference.bind(Github)
-
-async function ProcessRelease(ReleaseValue: Release, DeliveryId: string): Promise<void> {
+async function Bootstrap(): Promise<void> {
   try {
-    await WaitForPurge(Github, ReleaseValue, Config.GlobalpingApiToken, SocksBridge?.Url)
-    const Content = await SafeReleaseMessage(ReleaseValue, ResolveReference)
-    await Promise.all(Database.DestinationsFor(ReleaseValue.Repository, ReleaseValue.IsPrerelease).map(async (Destination) => Deliver(Database, Notifiers, Destination, DeliveryId, Content)))
+    const Config = GetEnvironment()
+    Logger.info({ message: 'Configuration loaded' })
+    const Database = await NotifierDatabase.Open(Config.DataDirectory)
+    Logger.info({ message: 'Database opened' })
+    const SocksBridge = Config.SocksProxyUrl === undefined ? undefined : await StartSocksBridge(Config.SocksProxyUrl)
+    const ProxyDispatcher = SocksBridge === undefined ? undefined : new ProxyAgent(SocksBridge.Url)
+    if (SocksBridge !== undefined) {
+      // Routes the Discord Gateway WebSocket login through the bridge too, since @discordjs/ws has no direct proxy hook.
+      bootstrap()
+      // global-agent's contract requires this exact casing (globalThis.GLOBAL_AGENT.{HTTP,HTTPS}_PROXY).
+      /* oxlint-disable crackle/pascal-case */
+      const GlobalAgentConfig = (globalThis as unknown as { GLOBAL_AGENT: { HTTP_PROXY: string | null, HTTPS_PROXY: string | null } }).GLOBAL_AGENT
+      GlobalAgentConfig.HTTP_PROXY = SocksBridge.Url
+      GlobalAgentConfig.HTTPS_PROXY = SocksBridge.Url
+      /* oxlint-enable crackle/pascal-case */
+      Logger.info({ message: 'SOCKS proxy bridge started' })
+    }
+    const Notifiers = new Map<Release['Repository'] extends never ? never : 'discord' | 'telegram', PlatformNotifier>()
+    if (Config.DiscordToken !== undefined) Notifiers.set('discord', CreateDiscord(Config.DiscordToken, Database, Config.Repositories, ProxyDispatcher))
+    if (Config.TelegramToken !== undefined) Notifiers.set('telegram', CreateTelegram(Config.TelegramToken, Database, Config.Repositories, SocksBridge?.Url))
+    Logger.info({ message: 'Platform notifiers initialized', Platforms: [...Notifiers.keys()] })
+    const WebhooksClient = new Webhooks({ secret: Config.GithubWebhookSecret })
+    const Github = new GithubClient(Config.GithubAppId, Config.GithubAppPrivateKey, ProxyDispatcher)
+    const ResolveReference = Github.ResolveReference.bind(Github)
+
+    async function ProcessRelease(ReleaseValue: Release, DeliveryId: string): Promise<void> {
+      const Repository = RepositorySlug(ReleaseValue.Repository)
+      Logger.info({ message: 'Release processing started', DeliveryId, Repository })
+      try {
+        await WaitForPurge(Github, ReleaseValue, Config.GlobalpingApiToken, SocksBridge?.Url)
+        const Content = await SafeReleaseMessage(ReleaseValue, ResolveReference)
+        const Destinations = Database.DestinationsFor(ReleaseValue.Repository, ReleaseValue.IsPrerelease)
+        Logger.info({ message: 'Delivery targets selected', DeliveryId, Repository, DestinationCount: Destinations.length })
+        await Promise.all(Destinations.map(async (Destination) => Deliver(Database, Notifiers, Destination, DeliveryId, Content)))
+        Logger.success({ message: 'Release processing completed', DeliveryId, Repository, DestinationCount: Destinations.length })
+      } catch (CaughtError) {
+        Logger.error({ message: 'Release processing failed', DeliveryId, Repository, Error: CaughtError })
+      }
+    }
+
+    async function HandleRequest(Request: IncomingMessage, Response: ServerResponse): Promise<void> {
+      if (Request.method === 'GET' && Request.url === '/healthz') {
+        Response.writeHead(200).end('ok')
+        return
+      }
+      if (Request.method !== 'POST' || Request.url !== Config.WebhookPath) {
+        Response.writeHead(404).end()
+        return
+      }
+      const DeliveryId = Request.headers['x-github-delivery']
+      const EventName = Request.headers['x-github-event']
+      const Signature = Request.headers['x-hub-signature-256']
+      if (typeof DeliveryId !== 'string' || typeof EventName !== 'string' || typeof Signature !== 'string') {
+        Logger.warn({ message: 'Webhook rejected: required GitHub headers are missing' })
+        Response.writeHead(400).end()
+        return
+      }
+      try {
+        const Body = await ReadBody(Request)
+        if (!await WebhooksClient.verify(Body, Signature)) {
+          Logger.warn({ message: 'Webhook rejected: signature verification failed', DeliveryId, EventName })
+          Response.writeHead(401).end()
+          return
+        }
+        if (EventName !== 'release') {
+          Logger.info({ message: 'Webhook ignored: unsupported event', DeliveryId, EventName })
+          Response.writeHead(202).end()
+          return
+        }
+        const ReleaseValue = ReleaseFromPayload(JSON.parse(Body) as unknown)
+        if (ReleaseValue === null || !Config.AllowedRepositories.has(RepositorySlug(ReleaseValue.Repository))) {
+          Logger.info({ message: 'Webhook ignored: release is unsupported or repository is not allowed', DeliveryId })
+          Response.writeHead(202).end()
+          return
+        }
+        const Repository = RepositorySlug(ReleaseValue.Repository)
+        if (!Database.RecordReceipt(DeliveryId, Repository)) {
+          Logger.info({ message: 'Webhook ignored: duplicate delivery', DeliveryId, Repository })
+          Response.writeHead(202).end()
+          return
+        }
+        Logger.info({ message: 'Webhook accepted', DeliveryId, Repository, Tag: ReleaseValue.Tag, IsPrerelease: ReleaseValue.IsPrerelease })
+        // Ack GitHub immediately; resolution and delivery can exceed its webhook timeout.
+        Response.writeHead(202).end()
+        void ProcessRelease(ReleaseValue, DeliveryId)
+      } catch (CaughtError) {
+        Logger.error({ message: 'Webhook processing failed', DeliveryId, EventName, Error: CaughtError })
+        Response.writeHead(500).end()
+      }
+    }
+
+    const Server = createServer((Request, Response) => {
+      void HandleRequest(Request, Response)
+    })
+
+    Server.listen(Config.Port, Config.Host, () => Logger.success({ message: 'Notifier bootstrap completed', Host: Config.Host, Port: Config.Port }))
+    process.on('SIGTERM', () => Server.close(() => {
+      Logger.info({ message: 'Notifier shutting down' })
+      Database.Close()
+      void SocksBridge?.Close()
+    }))
   } catch (CaughtError) {
-    console.error(CaughtError)
+    Logger.fatal({ message: 'Notifier bootstrap failed', Error: CaughtError })
+    throw CaughtError
   }
 }
 
-async function HandleRequest(Request: IncomingMessage, Response: ServerResponse): Promise<void> {
-  if (Request.method === 'GET' && Request.url === '/healthz') {
-    Response.writeHead(200).end('ok')
-    return
-  }
-  if (Request.method !== 'POST' || Request.url !== Config.WebhookPath) {
-    Response.writeHead(404).end()
-    return
-  }
-  const DeliveryId = Request.headers['x-github-delivery']
-  const EventName = Request.headers['x-github-event']
-  const Signature = Request.headers['x-hub-signature-256']
-  if (typeof DeliveryId !== 'string' || typeof EventName !== 'string' || typeof Signature !== 'string') {
-    Response.writeHead(400).end()
-    return
-  }
-  try {
-    const Body = await ReadBody(Request)
-    if (!await WebhooksClient.verify(Body, Signature)) {
-      Response.writeHead(401).end()
-      return
-    }
-    if (EventName !== 'release') {
-      Response.writeHead(202).end()
-      return
-    }
-    const ReleaseValue = ReleaseFromPayload(JSON.parse(Body) as unknown)
-    if (ReleaseValue === null || !Config.AllowedRepositories.has(RepositorySlug(ReleaseValue.Repository))) {
-      Response.writeHead(202).end()
-      return
-    }
-    if (!Database.RecordReceipt(DeliveryId, RepositorySlug(ReleaseValue.Repository))) {
-      Response.writeHead(202).end()
-      return
-    }
-    // Ack GitHub immediately; resolution and delivery can exceed its webhook timeout.
-    Response.writeHead(202).end()
-    void ProcessRelease(ReleaseValue, DeliveryId)
-  } catch (CaughtError) {
-    console.error(CaughtError)
-    Response.writeHead(500).end()
-  }
-}
-
-const Server = createServer((Request, Response) => {
-  void HandleRequest(Request, Response)
-})
-
-Server.listen(Config.Port, Config.Host, () => console.log(`Listening on ${Config.Host}:${Config.Port}`))
-process.on('SIGTERM', () => Server.close(() => {
-  Database.Close()
-  void SocksBridge?.Close()
-}))
+await Bootstrap()
