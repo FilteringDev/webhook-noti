@@ -41,7 +41,7 @@ A repository is considered a userscript repository when the script at its releas
 
 The Discord bot needs Guilds and Direct Messages intents, plus View Channel and Send Messages permissions in destination channels. Only users with Manage Channels permission for the destination channel may configure channel subscriptions.
 
-For reliable command handling, disable group privacy mode for the Telegram bot in BotFather. Only group administrators may configure subscriptions for groups and forum topics.
+For reliable command handling, disable group privacy mode for the Telegram bot in BotFather. Only group administrators may configure subscriptions for groups and forum topics. Telegram API transport failures during commands or button interactions are logged without stopping the notifier.
 
 ## Bot Commands
 
@@ -71,7 +71,7 @@ Subscription commands show only repositories where the GitHub App is installed. 
 
 Original GitHub Markdown is never sent. Bodies are converted to safe plain text, and forms such as `@mention`, Discord mention markup, `@everyone`, `@here`, and `#channel` are normalized with zero-width separators. Discord messages also always set `allowedMentions.parse` to an empty array. Messages are truncated at 3,800 characters with the release URL appended; actual delivery observes Discord's 2,000-character and Telegram's 4,096-character limits.
 
-For each repository, the notifier records the `published_at` timestamp of the most recently processed release as a watermark. On the first observation of a repository, every existing release is marked as processed without sending notifications, so installing the App does not trigger a flood of historical releases. Afterwards, only releases published after the watermark are processed, once each by release ID. Delivery to each destination is retried up to three times at `[0ms, 250ms, 1000ms]` intervals on failure, and success or failure plus the error message is stored in the database.
+For each repository, the notifier records the `published_at` timestamp of the most recently processed release as a watermark. On the first observation of a repository, every existing release is marked as processed without sending notifications, so installing the App does not trigger a flood of historical releases. Afterwards, only releases published after the watermark are processed, once each by release ID. Transient transport failures and `429`/`5xx` responses retry delivery to each destination up to three times at `[0ms, 250ms, 1000ms]` intervals; client, authentication, authorization, and not-found errors are recorded without retrying. Success or failure plus the error message is stored in the database.
 
 `sql.js` provides the WASM SQLite database. After every mutation, the database is exported atomically to `notifier.sqlite` under `DATA_DIR` (default: `/var/lib/webhook-noti`). Only Compose's `notifier-data` named volume is writable; the root filesystem is read-only. `/tmp` and `/run` are `tmpfs`, all Linux capabilities are dropped, and `no-new-privileges` is enabled.
 

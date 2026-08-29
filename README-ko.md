@@ -41,7 +41,7 @@ userscript repository는 release commit의 script에 `--SubscriptionUrl`이 있�
 
 Discord bot에는 Guilds/Direct Messages intents 및 대상 채널의 View Channel, Send Messages 권한이 필요합니다. 채널 구독은 대상 채널의 `Manage Channels` 권한이 있는 사용자만 설정할 수 있습니다.
 
-Telegram bot은 BotFather에서 그룹 privacy mode를 해제해야 command를 안정적으로 받을 수 있습니다. 그룹과 forum topic의 구독은 해당 그룹 administrator만 설정할 수 있습니다.
+Telegram bot은 BotFather에서 그룹 privacy mode를 해제해야 command를 안정적으로 받을 수 있습니다. 그룹과 forum topic의 구독은 해당 그룹 administrator만 설정할 수 있습니다. 명령 또는 버튼 처리 중 Telegram API 전송 오류가 발생하면 notifier는 종료하지 않고 오류를 기록합니다.
 
 ## Bot 명령어
 
@@ -71,7 +71,7 @@ Telegram commands:
 
 원본 GitHub Markdown은 전송하지 않습니다. 본문은 안전한 평문으로 변환하고, `@mention`, Discord mention markup, `@everyone`, `@here`, `#channel` 형태는 zero-width separator로 재규격화합니다. Discord 전송 시에는 `allowedMentions.parse`도 빈 배열로 고정합니다. 메시지는 3,800자에서 잘리고 release URL이 덧붙여지며, 실제 전송 시 Discord는 2,000자, Telegram은 4,096자 한도를 따릅니다.
 
-저장소별로 마지막으로 처리한 release의 `published_at`을 watermark로 기록합니다. 저장소를 처음 관측한 시점에는 기존 release를 모두 처리 완료로만 표시하고 알림은 보내지 않으므로, App을 새로 설치해도 과거 release가 한꺼번에 전송되지 않습니다. 이후에는 watermark보다 나중에 게시된 release만, release ID 기준으로 한 번씩만 전달합니다. 각 destination으로의 전달은 실패 시 `[0ms, 250ms, 1000ms]` 간격으로 최대 3회 재시도하며, 성공/실패 여부와 오류 메시지를 database에 기록합니다.
+저장소별로 마지막으로 처리한 release의 `published_at`을 watermark로 기록합니다. 저장소를 처음 관측한 시점에는 기존 release를 모두 처리 완료로만 표시하고 알림은 보내지 않으므로, App을 새로 설치해도 과거 release가 한꺼번에 전송되지 않습니다. 이후에는 watermark보다 나중에 게시된 release만, release ID 기준으로 한 번씩만 전달합니다. 일시적 전송 오류와 `429`/`5xx` 응답일 때 각 destination 전달을 `[0ms, 250ms, 1000ms]` 간격으로 최대 3회 재시도하며, 잘못된 요청, 인증/권한 오류, 찾을 수 없는 대상은 재시도하지 않습니다. 성공/실패 여부와 오류 메시지를 database에 기록합니다.
 
 `sql.js`는 WASM SQLite database를 사용합니다. 모든 mutation 후 DB export를 `DATA_DIR`(기본값 `/var/lib/webhook-noti`) 아래 `notifier.sqlite`로 원자적으로 기록합니다. Compose의 `notifier-data` named volume만 writable이며, root filesystem은 read-only입니다. `/tmp`, `/run`은 `tmpfs`, 모든 Linux capability는 drop되고 `no-new-privileges`가 켜집니다.
 

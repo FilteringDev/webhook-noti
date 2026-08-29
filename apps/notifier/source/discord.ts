@@ -1,10 +1,14 @@
 import { Message, type Destination, type Repository } from '@webhook-noti/core'
+import { consola } from 'consola'
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, GatewayIntentBits, PermissionFlagsBits, SlashCommandBuilder, StringSelectMenuBuilder, type Interaction } from 'discord.js'
 import type { Dispatcher } from 'undici'
+import { RunGuarded } from './async-guard.js'
 import type { NotifierDatabase } from './database.js'
 import type { PlatformNotifier } from './delivery.js'
 import { ForgetConfirmation, type ForgetScope } from './forget.js'
 import { RepositorySelector, type RepositoryAction, type SelectionPage } from './selection.js'
+
+const Logger = consola.withTag('discord')
 
 const Commands = [
   new SlashCommandBuilder().setName('subscribe').setDescription('Subscribe this destination to a repository').addChannelOption((Option) => Option.setName('channel').setDescription('Channel to receive release notifications')).addBooleanOption((Option) => Option.setName('prerelease').setDescription('Include prereleases')),
@@ -50,7 +54,7 @@ export function CreateDiscord(Token: string, Database: NotifierDatabase, ListRep
     void DiscordClient.application?.commands.set(Commands.map((Command) => Command.toJSON()))
   })
   DiscordClient.on('interactionCreate', (Interaction) => {
-    void HandleInteraction(Interaction)
+    RunGuarded(() => HandleInteraction(Interaction), (CaughtError) => Logger.error({ message: 'Discord interaction handler failed', Error: CaughtError }))
   })
   async function HandleInteraction(Interaction: Interaction): Promise<void> {
     if (Interaction.isButton() && (Interaction.customId.startsWith('forget-confirm:') || Interaction.customId.startsWith('forget-cancel:'))) {

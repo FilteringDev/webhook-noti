@@ -1,10 +1,14 @@
 import { Message, type Destination, type Language, type Repository } from '@webhook-noti/core'
+import { consola } from 'consola'
 import { HttpsProxyAgent } from 'https-proxy-agent'
 import TelegramBot from 'node-telegram-bot-api'
+import { RunGuarded } from './async-guard.js'
 import type { NotifierDatabase } from './database.js'
 import type { PlatformNotifier } from './delivery.js'
 import { ForgetConfirmation, type ForgetScope } from './forget.js'
 import { RepositorySelector, type SelectionPage } from './selection.js'
+
+const Logger = consola.withTag('telegram')
 
 function ParseCommand(Text: string): { Command: string, Argument: string | undefined } {
   const [Command = '', Argument] = Text.trim().split(/\s+/, 2)
@@ -41,7 +45,8 @@ export function CreateTelegram(Token: string, Database: NotifierDatabase, ListRe
   })
   const Selector = new RepositorySelector(ListRepositories)
   const ForgetConfirmations = new ForgetConfirmation()
-  Bot.on('message', async (Update) => {
+  Bot.on('message', (Update) => {
+    RunGuarded(async () => {
     if (Update.text === undefined || Update.from === undefined) return
     const { Command, Argument } = ParseCommand(Update.text)
     if (!['/subscribe', '/unsubscribe', '/language', '/dm', '/routes', '/forget'].includes(Command)) return
@@ -95,9 +100,11 @@ export function CreateTelegram(Token: string, Database: NotifierDatabase, ListRe
     const TopicId = Update.message_thread_id ?? null
     const Action = Command === '/unsubscribe' ? 'unsubscribe' : Command === '/dm' ? 'dm-enable' : 'subscribe'
     const Page = Selector.Create({ Action, ExternalId, IncludePrerelease: false, OwnerId: String(Update.from.id), SourceId: ExternalId, TopicId })
-    await Bot.sendMessage(Update.chat.id, 'Select a repository.', { message_thread_id: TopicId ?? undefined, reply_markup: Keyboard(Page) })
+      await Bot.sendMessage(Update.chat.id, 'Select a repository.', { message_thread_id: TopicId ?? undefined, reply_markup: Keyboard(Page) })
+    }, (CaughtError) => Logger.error({ message: 'Telegram message handler failed', Error: CaughtError }))
   })
-  Bot.on('callback_query', async (Callback) => {
+  Bot.on('callback_query', (Callback) => {
+    RunGuarded(async () => {
     if (Callback.message === undefined || Callback.data === undefined) return
     const [Operation, Id, Index] = Callback.data.split(':', 3)
     if (Operation === 'forget-confirm' || Operation === 'forget-cancel') {
@@ -158,8 +165,10 @@ export function CreateTelegram(Token: string, Database: NotifierDatabase, ListRe
       Result = Selected.Action === 'dm-enable' ? 'dmEnabled' : 'subscribed'
     }
     await Bot.editMessageText(Message(Language, Result), { chat_id: MessageValue.chat.id, message_id: MessageValue.message_id })
-    await Bot.answerCallbackQuery(Callback.id)
+      await Bot.answerCallbackQuery(Callback.id)
+    }, (CaughtError) => Logger.error({ message: 'Telegram callback query handler failed', Error: CaughtError }))
   })
+  Bot.on('polling_error', (CaughtError) => Logger.error({ message: 'Telegram polling failed', Error: CaughtError }))
   return {
     async Send(Destination, Content): Promise<void> {
       await Bot.sendMessage(Destination.ExternalId, Content.slice(0, 4_096), Destination.TopicId === null ? undefined : { message_thread_id: Destination.TopicId })
