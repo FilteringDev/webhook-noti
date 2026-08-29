@@ -33,7 +33,7 @@ export function CreateTelegram(Token: string, Database: NotifierDatabase, Reposi
   Bot.on('message', async (Update) => {
     if (Update.text === undefined || Update.from === undefined) return
     const { Command, Argument } = ParseCommand(Update.text)
-    if (!['/subscribe', '/unsubscribe', '/language', '/dm'].includes(Command)) return
+    if (!['/subscribe', '/unsubscribe', '/language', '/dm', '/routes'].includes(Command)) return
     const Language: Language = Command === '/language'
       ? Argument === 'ko' ? 'ko' : 'en'
       : Database.LanguageFor('telegram', String(Update.from.id))
@@ -52,6 +52,17 @@ export function CreateTelegram(Token: string, Database: NotifierDatabase, Reposi
         await Send(Message(Language, 'forbidden'))
         return
       }
+    }
+    if (Command === '/routes') {
+      const Routes = Database.RoutesFor('telegram', [String(Update.chat.id)])
+      const Content = Routes.length === 0
+        ? Message(Language, 'routesEmpty')
+        : [
+            Message(Language, 'routesHeading'),
+            ...Routes.map((Route) => `${Route.Repository.Owner}/${Route.Repository.Name} -> ${Route.TopicId === null ? Message(Language, 'routesChat') : `${Message(Language, 'routesTopic')} #${Route.TopicId}`}`)
+          ].join('\n')
+      await Send(Content.slice(0, 4_096))
+      return
     }
     const ExternalId = String(Update.chat.id)
     const TopicId = Update.message_thread_id ?? null

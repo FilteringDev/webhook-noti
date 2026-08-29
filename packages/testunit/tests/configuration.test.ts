@@ -93,3 +93,31 @@ test('stores repository-specific channel and topic routes', async () => {
     rmSync(Directory, { force: true, recursive: true })
   }
 })
+
+test('lists only scoped non-DM subscription routes', async () => {
+  const Directory = mkdtempSync(join(tmpdir(), 'webhook-noti-'))
+  try {
+    const Database = await NotifierDatabase.Open(Directory)
+    Database.SaveDestination({ ExternalId: 'discord-channel-a', IncludePrerelease: false, Kind: 'discord-channel', Language: 'en', OwnerId: 'discord-owner', Platform: 'discord', Repository: { Owner: 'acme', Name: 'api' }, TopicId: null })
+    Database.SaveDestination({ ExternalId: 'discord-channel-b', IncludePrerelease: false, Kind: 'discord-channel', Language: 'en', OwnerId: 'discord-owner', Platform: 'discord', Repository: { Owner: 'acme', Name: 'worker' }, TopicId: null })
+    Database.SaveDestination({ ExternalId: 'discord-user', IncludePrerelease: false, Kind: 'discord-dm', Language: 'en', OwnerId: 'discord-owner', Platform: 'discord', Repository: { Owner: 'acme', Name: 'dm-only' }, TopicId: null })
+    Database.SaveDestination({ ExternalId: 'telegram-chat', IncludePrerelease: false, Kind: 'telegram-topic', Language: 'ko', OwnerId: 'telegram-owner', Platform: 'telegram', Repository: { Owner: 'acme', Name: 'api' }, TopicId: 123 })
+
+    assert.deepEqual(Database.RoutesFor('discord', ['discord-channel-a']), [{
+      Id: 1,
+      Platform: 'discord',
+      Kind: 'discord-channel',
+      ExternalId: 'discord-channel-a',
+      TopicId: null,
+      OwnerId: 'discord-owner',
+      Language: 'en',
+      DirectMessage: false,
+      IncludePrerelease: false,
+      Repository: { Owner: 'acme', Name: 'api' }
+    }])
+    assert.equal(Database.RoutesFor('discord', []).length, 0)
+    assert.deepEqual(Database.RoutesFor('telegram', ['telegram-chat']).map((Route) => ({ Repository: Route.Repository, TopicId: Route.TopicId })), [{ Repository: { Owner: 'acme', Name: 'api' }, TopicId: 123 }])
+  } finally {
+    rmSync(Directory, { force: true, recursive: true })
+  }
+})

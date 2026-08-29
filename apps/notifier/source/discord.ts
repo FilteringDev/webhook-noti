@@ -9,7 +9,8 @@ const Commands = [
   new SlashCommandBuilder().setName('subscribe').setDescription('Subscribe this destination to a repository').addChannelOption((Option) => Option.setName('channel').setDescription('Channel to receive release notifications')).addBooleanOption((Option) => Option.setName('prerelease').setDescription('Include prereleases')),
   new SlashCommandBuilder().setName('unsubscribe').setDescription('Unsubscribe this destination from a repository').addChannelOption((Option) => Option.setName('channel').setDescription('Channel to remove release notifications from')),
   new SlashCommandBuilder().setName('language').setDescription('Set response language').addStringOption((Option) => Option.setName('value').setDescription('en or ko').setRequired(true).addChoices({ name: 'English', value: 'en' }, { name: 'Korean', value: 'ko' })),
-  new SlashCommandBuilder().setName('dm').setDescription('Enable or disable direct-message releases').addBooleanOption((Option) => Option.setName('enabled').setDescription('Enable direct messages').setRequired(true))
+  new SlashCommandBuilder().setName('dm').setDescription('Enable or disable direct-message releases').addBooleanOption((Option) => Option.setName('enabled').setDescription('Enable direct messages').setRequired(true)),
+  new SlashCommandBuilder().setName('routes').setDescription('Show repository notification routes in this server')
 ]
 
 function Components(Page: SelectionPage): ActionRowBuilder<StringSelectMenuBuilder | ButtonBuilder>[] {
@@ -97,6 +98,19 @@ export function CreateDiscord(Token: string, Database: NotifierDatabase, Reposit
     const CanManage = IsDirectMessage || Interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels) === true
     if (!CanManage) {
       await Reply(Message(Language, 'forbidden'))
+      return
+    }
+    if (Interaction.commandName === 'routes') {
+      if (Interaction.guild === null) {
+        await Reply(Message(Language, 'routesGuildOnly'))
+        return
+      }
+      const Channels = await Interaction.guild.channels.fetch()
+      const Routes = Database.RoutesFor('discord', [...Channels.keys()])
+      const Content = Routes.length === 0
+        ? Message(Language, 'routesEmpty')
+        : [Message(Language, 'routesHeading'), ...Routes.map((Route) => `${Route.Repository.Owner}/${Route.Repository.Name} -> <#${Route.ExternalId}>`)].join('\n')
+      await Reply(Content.slice(0, 2_000))
       return
     }
     const TargetChannel = Interaction.commandName === 'subscribe' || Interaction.commandName === 'unsubscribe' ? Interaction.options.getChannel('channel') : null

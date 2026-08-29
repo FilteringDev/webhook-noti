@@ -16,6 +16,11 @@ interface DestinationRow {
   direct_message: number
   include_prerelease: number
 }
+
+interface SubscriptionRouteRow extends DestinationRow {
+  repository_owner: string
+  repository_name: string
+}
 /* oxlint-enable crackle/pascal-case */
 
 export interface SaveDestination {
@@ -27,6 +32,10 @@ export interface SaveDestination {
   Platform: Platform
   Repository: Repository
   TopicId: number | null
+}
+
+export interface SubscriptionRoute extends Destination {
+  Repository: Repository
 }
 
 export class NotifierDatabase {
@@ -152,6 +161,33 @@ export class NotifierDatabase {
       Language: Row.language,
       DirectMessage: Row.direct_message === 1,
       IncludePrerelease: Row.include_prerelease === 1
+    }))
+  }
+
+  RoutesFor(Platform: Platform, ExternalIds: string[]): SubscriptionRoute[] {
+    if (ExternalIds.length === 0) return []
+    const Placeholders = ExternalIds.map(() => '?').join(', ')
+    const Statement = this.#Database.prepare([
+      'SELECT id, platform, kind, external_id, topic_id, owner_id, language, direct_message, include_prerelease, repository_owner, repository_name',
+      'FROM destinations',
+      `WHERE platform = ? AND external_id IN (${Placeholders}) AND direct_message = 0`,
+      'ORDER BY repository_owner, repository_name, external_id, topic_id'
+    ].join('\n'))
+    Statement.bind([Platform, ...ExternalIds])
+    const Rows: SubscriptionRouteRow[] = []
+    while (Statement.step()) Rows.push(Statement.getAsObject() as unknown as SubscriptionRouteRow)
+    Statement.free()
+    return Rows.map((Row) => ({
+      Id: Row.id,
+      Platform: Row.platform,
+      Kind: Row.kind,
+      ExternalId: Row.external_id,
+      TopicId: Row.topic_id,
+      OwnerId: Row.owner_id,
+      Language: Row.language,
+      DirectMessage: Row.direct_message === 1,
+      IncludePrerelease: Row.include_prerelease === 1,
+      Repository: { Owner: Row.repository_owner, Name: Row.repository_name }
     }))
   }
 
