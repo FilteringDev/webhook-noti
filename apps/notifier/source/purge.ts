@@ -55,6 +55,25 @@ export interface PurgeProgress {
 
 type PurgeProgressReporter = (Progress: PurgeProgress) => void
 
+export function PurgeProgressMessage(Progress: PurgeProgress): string {
+  const Details = [
+    typeof Progress.Reason === 'string' ? `reason=${JSON.stringify(Progress.Reason)}` : undefined,
+    typeof Progress.MeasurementId === 'string' ? `measurement=${Progress.MeasurementId}` : undefined,
+    typeof Progress.Status === 'string' ? `status=${Progress.Status}` : undefined,
+    typeof Progress.ExpectedVersion === 'string' ? `expected-version=${Progress.ExpectedVersion}` : undefined,
+    typeof Progress.ProbeCount === 'number' ? `probes=${Progress.ProbeCount}` : undefined,
+    typeof Progress.MatchingVersionCount === 'number' ? `matched=${Progress.MatchingVersionCount}` : undefined,
+    typeof Progress.MismatchedVersionCount === 'number' ? `mismatched=${Progress.MismatchedVersionCount}` : undefined,
+    typeof Progress.MissingVersionCount === 'number' ? `missing=${Progress.MissingVersionCount}` : undefined,
+    typeof Progress.HttpFailureCount === 'number' ? `http-failures=${Progress.HttpFailureCount}` : undefined,
+    typeof Progress.InvalidProbeCount === 'number' ? `invalid=${Progress.InvalidProbeCount}` : undefined,
+    typeof Progress.KoreanProbeCount === 'number' ? `kr=${Progress.KoreanProbeCount}` : undefined,
+    typeof Progress.UnitedStatesProbeCount === 'number' ? `us=${Progress.UnitedStatesProbeCount}` : undefined,
+    typeof Progress.Converged === 'boolean' ? `converged=${Progress.Converged}` : undefined
+  ].filter((Value): Value is string => Value !== undefined)
+  return Details.length === 0 ? Progress.Message : `${Progress.Message} ${Details.join(' ')}`
+}
+
 function ConnectTunnel(ProxyUrl: string, Hostname: string, Port: number): Promise<Socket> {
   const Proxy = new URL(ProxyUrl)
   if (Proxy.protocol !== 'http:' || Proxy.hostname.length === 0 || Proxy.port.length === 0) {
@@ -230,7 +249,11 @@ function MeasurementFinished(Value: unknown): boolean {
   return Status === 'finished' || Status === 'completed'
 }
 
-class CdnNotConvergedError extends Error {}
+class CdnNotConvergedError extends Error {
+  constructor(readonly MeasurementId: string, readonly Status: string | undefined, readonly Summary: ProbeSummary) {
+    super('Globalping measurement completed before CDN content converged')
+  }
+}
 
 function MeasurementStatus(Value: unknown): string | undefined {
   if (typeof Value !== 'object' || Value === null || typeof (Value as { status?: unknown }).status !== 'string') return undefined
@@ -286,7 +309,7 @@ export async function ConfirmCdn(Url: URL, ReleaseTag: string, ApiToken: string,
     }
     if (MeasurementFinished(Measurement.Body)) {
       OnProgress?.({ Message: 'Globalping measurement completed without convergence', MeasurementId: Id, PollAttempt, Status, ...Summary })
-      throw new CdnNotConvergedError('Globalping measurement completed before CDN content converged')
+      throw new CdnNotConvergedError(Id, Status, Summary)
     }
     await Wait(PollIntervalMs)
   }
@@ -343,7 +366,7 @@ export async function WaitForPurge(Github: GithubClient, ReleaseValue: Release, 
           return
         } catch (CaughtError) {
           if (!(CaughtError instanceof CdnNotConvergedError)) throw CaughtError
-          OnProgress?.({ Message: 'Purge job rerun requested after CDN did not converge', PollAttempt, JobId: Job.Id, RunAttempt: Job.RunAttempt, RerunCount, NextRerunCount: RerunCount + 1 })
+          OnProgress?.({ Message: 'Purge job rerun requested after CDN did not converge', Reason: 'Globalping measurement completed without CDN convergence', PollAttempt, JobId: Job.Id, RunAttempt: Job.RunAttempt, RerunCount, NextRerunCount: RerunCount + 1, MeasurementId: CaughtError.MeasurementId, Status: CaughtError.Status, ...CaughtError.Summary })
           await Github.RerunJob(ReleaseValue.Repository, Job.Id)
           RerunCount += 1
         }

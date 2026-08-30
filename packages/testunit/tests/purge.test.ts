@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test, vi } from 'vitest'
 import type { Release } from '@webhook-noti/core'
-import { ConfirmCdn, SubscriptionUrlFromPackageJson, WaitForPurge } from '../../../apps/notifier/source/purge.js'
+import { ConfirmCdn, PurgeProgressMessage, SubscriptionUrlFromPackageJson, WaitForPurge } from '../../../apps/notifier/source/purge.js'
 
 type GlobalpingRequest = Exclude<Parameters<typeof ConfirmCdn>[4], undefined>
 type GlobalpingRequestOptions = Parameters<GlobalpingRequest>[1]
@@ -118,6 +118,28 @@ test('rejects completed Globalping measurements with mismatched userscript versi
   )
 })
 
+test('renders Globalping rerun diagnostics in the terminal message', () => {
+  assert.equal(
+    PurgeProgressMessage({
+      Message: 'Purge job rerun requested after CDN did not converge',
+      Reason: 'Globalping measurement completed without CDN convergence',
+      MeasurementId: 'first-measurement',
+      Status: 'finished',
+      ExpectedVersion: '1.2.3',
+      ProbeCount: 100,
+      MatchingVersionCount: 20,
+      MismatchedVersionCount: 80,
+      MissingVersionCount: 0,
+      HttpFailureCount: 0,
+      InvalidProbeCount: 0,
+      KoreanProbeCount: 10,
+      UnitedStatesProbeCount: 10,
+      Converged: false
+    }),
+    'Purge job rerun requested after CDN did not converge reason="Globalping measurement completed without CDN convergence" measurement=first-measurement status=finished expected-version=1.2.3 probes=100 matched=20 mismatched=80 missing=0 http-failures=0 invalid=0 kr=10 us=10 converged=false'
+  )
+})
+
 test('rejects completed Globalping measurements without 10 matching probes in each requested region', async () => {
   await assert.rejects(
     ConfirmCdn(new URL('https://cdn.jsdelivr.net/npm/acme@latest/script.user.js'), '1.2.3', 'token-value', undefined, RequestFrom([
@@ -189,7 +211,7 @@ test('reruns an unconverged purge job and waits longer before checking its new a
   assert.equal(Progress.find((Event) => Event.Message === 'Globalping measurement completed without convergence')?.MeasurementId, 'first-measurement')
   assert.equal(Progress.find((Event) => Event.Message === 'Globalping measurement converged')?.MeasurementId, 'second-measurement')
   assert.deepEqual(Progress.find((Event) => Event.Message === 'Purge job rerun requested after CDN did not converge'), {
-    Message: 'Purge job rerun requested after CDN did not converge', PollAttempt: 1, JobId: 1, RunAttempt: 1, RerunCount: 0, NextRerunCount: 1
+    Message: 'Purge job rerun requested after CDN did not converge', Reason: 'Globalping measurement completed without CDN convergence', PollAttempt: 1, JobId: 1, RunAttempt: 1, RerunCount: 0, NextRerunCount: 1, MeasurementId: 'first-measurement', Status: 'finished', Converged: false, ExpectedVersion: '1.2.3', HttpFailureCount: 0, InvalidProbeCount: 0, KoreanProbeCount: 10, MatchingVersionCount: 20, MissingVersionCount: 0, MismatchedVersionCount: 80, ProbeCount: 100, UnitedStatesProbeCount: 10
   })
   assert.deepEqual(Progress.find((Event) => Event.Message === 'CDN propagation wait completed'), {
     Message: 'CDN propagation wait completed', PollAttempt: 1, JobId: 1, RunAttempt: 1, PropagationDelayMs: 120_000, RerunCount: 0

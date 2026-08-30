@@ -10,15 +10,11 @@ import { GetEnvironment } from './env.js'
 import { GithubClient } from './github.js'
 import { InstallationRegistry } from './installations.js'
 import { CreateReleasePoller } from './poller.js'
-import { WaitForPurge, type PurgeProgress } from './purge.js'
+import { PurgeProgressMessage, WaitForPurge } from './purge.js'
 import { StartSocksBridge } from './socks-bridge.js'
 import { CreateTelegram } from './telegram.js'
 
 const Logger = consola.withTag('notifier')
-
-function PurgeProgressMessage(Progress: PurgeProgress): string {
-  return typeof Progress.MeasurementId === 'string' ? `${Progress.Message} measurement=${Progress.MeasurementId}` : Progress.Message
-}
 
 async function Bootstrap(): Promise<void> {
   try {
