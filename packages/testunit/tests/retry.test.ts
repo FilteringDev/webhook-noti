@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import test from 'node:test'
+import { test } from 'vitest'
 import { RunGuarded } from '../../../apps/notifier/source/async-guard.js'
 import { IsPermanentDestinationError, IsTransientError, Retry } from '../../../apps/notifier/source/delivery.js'
 import { PollingErrorDetails } from '../../../apps/notifier/source/telegram.js'

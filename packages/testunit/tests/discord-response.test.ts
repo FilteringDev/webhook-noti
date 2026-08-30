@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import test from 'node:test'
+import { test } from 'vitest'
 import { DiscordInteractionErrorDetails, ReplyWithFailure } from '../../../apps/notifier/source/discord-response.js'
 
 test('replies to a failed fresh Discord interaction', async () => {

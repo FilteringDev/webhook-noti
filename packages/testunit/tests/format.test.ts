@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import test from 'node:test'
+import { test } from 'vitest'
 import { SafeReleaseMessage, type Release } from '@webhook-noti/core'
 
 const ReleaseValue: Release = {
