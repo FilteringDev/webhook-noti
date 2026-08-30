@@ -6,6 +6,7 @@ import type { GithubClient } from './github.js'
 const PurgeJobName = 'Purge jsdelivr cache'
 const PollIntervalMs = 5_000
 const PollTimeoutMs = 10 * 60_000
+const MaxRerunCount = 2
 const RequestedProbeCount = 100
 const GlobalpingApiUrl = 'https://api.globalping.io/v1/measurements'
 
@@ -328,6 +329,10 @@ export async function WaitForPurge(Github: GithubClient, ReleaseValue: Release, 
       if (Job.Conclusion === 'success' && !ProcessedAttempts.has(Attempt)) {
         ProcessedAttempts.add(Attempt)
         const PropagationDelayMs = RerunCount * 90_000 + 120_000
+        if (RerunCount >= MaxRerunCount || Date.now() + PropagationDelayMs >= Deadline) {
+          OnProgress?.({ Message: 'Purge verification gave up before CDN confirmation; proceeding without it', PollAttempt, JobId: Job.Id, RunAttempt: Job.RunAttempt, RerunCount, PropagationDelayMs })
+          return
+        }
         OnProgress?.({ Message: 'Purge job succeeded; waiting for CDN propagation', PollAttempt, JobId: Job.Id, RunAttempt: Job.RunAttempt, PropagationDelayMs, RerunCount })
         await Delay(PropagationDelayMs)
         OnProgress?.({ Message: 'CDN propagation wait completed', PollAttempt, JobId: Job.Id, RunAttempt: Job.RunAttempt, PropagationDelayMs, RerunCount })
@@ -344,6 +349,10 @@ export async function WaitForPurge(Github: GithubClient, ReleaseValue: Release, 
         }
       } else if (Job.Status === 'completed' && !ProcessedAttempts.has(Attempt)) {
         ProcessedAttempts.add(Attempt)
+        if (RerunCount >= MaxRerunCount) {
+          OnProgress?.({ Message: 'Purge verification gave up after unsuccessful completion; proceeding without it', PollAttempt, JobId: Job.Id, RunAttempt: Job.RunAttempt, Conclusion: Job.Conclusion ?? undefined, RerunCount })
+          return
+        }
         OnProgress?.({ Message: 'Purge job rerun requested after unsuccessful completion', PollAttempt, JobId: Job.Id, RunAttempt: Job.RunAttempt, Conclusion: Job.Conclusion ?? undefined, RerunCount })
         await Github.RerunJob(ReleaseValue.Repository, Job.Id)
         RerunCount += 1

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test } from 'vitest'
+import { test, vi } from 'vitest'
 import type { Release } from '@webhook-noti/core'
 import { ConfirmCdn, SubscriptionUrlFromPackageJson, WaitForPurge } from '../../../apps/notifier/source/purge.js'
 
@@ -180,6 +180,92 @@ test('reruns an unconverged purge job and waits longer before checking its new a
   assert.deepEqual(Progress.at(-1), {
     Message: 'Purge verification completed', PollAttempt: 2, JobId: 2, RunAttempt: 2, RerunCount: 1
   })
+})
+
+test('gives up and still resolves after reaching the maximum rerun count', async () => {
+  const RerunJobIds: number[] = []
+  const Progress: Array<{ Message: string, JobId?: number, RunAttempt?: number, RerunCount?: number, PropagationDelayMs?: number }> = []
+  const ReleaseValue: Release = {
+    Repository: { Owner: 'acme', Name: 'userscript' },
+    Title: 'Release',
+    Tag: 'v1.2.3',
+    Body: '',
+    Author: 'octocat',
+    Url: 'https://github.com/acme/userscript/releases/tag/v1.2.3',
+    IsPrerelease: false,
+    TargetCommitish: 'v1.2.3'
+  }
+  let PurgeJobCalls = 0
+  const Github = {
+    ResolveCommit: async () => '0123456789012345678901234567890123456789',
+    PackageJson: async () => JSON.stringify({ scripts: { build: 'build --SubscriptionUrl https://cdn.jsdelivr.net/npm/acme@latest/script.user.js' } }),
+    PurgeJobs: async () => {
+      PurgeJobCalls += 1
+      return [{ Id: PurgeJobCalls, Name: 'Purge jsdelivr cache', Status: 'completed', Conclusion: 'success', RunAttempt: PurgeJobCalls }]
+    },
+    RerunJob: async (RepositoryValue: Release['Repository'], JobId: number) => {
+      void RepositoryValue
+      RerunJobIds.push(JobId)
+    }
+  } as unknown as Parameters<typeof WaitForPurge>[0]
+  const MismatchedVersion = { StatusCode: 200, Body: { status: 'finished', results: [...MatchingResults('KR', 10), ...MatchingResults('US', 10), ...MatchingResults('DE', 80, '1.2.2')] } }
+  const Request = RequestFrom([
+    { StatusCode: 202, Body: { id: 'first-measurement' } }, MismatchedVersion,
+    { StatusCode: 202, Body: { id: 'second-measurement' } }, MismatchedVersion
+  ])
+
+  await WaitForPurge(Github, ReleaseValue, 'token-value', undefined, Request, async () => {}, (Event) => Progress.push(Event))
+
+  assert.deepEqual(RerunJobIds, [1, 2])
+  assert.deepEqual(Progress.at(-1), {
+    Message: 'Purge verification gave up before CDN confirmation; proceeding without it', PollAttempt: 3, JobId: 3, RunAttempt: 3, RerunCount: 2, PropagationDelayMs: 300_000
+  })
+})
+
+test('gives up before starting a purge cycle that would exceed the poll deadline', async () => {
+  vi.useFakeTimers()
+  try {
+    const RerunJobIds: number[] = []
+    const Progress: Array<{ Message: string, JobId?: number, RunAttempt?: number, RerunCount?: number, PropagationDelayMs?: number }> = []
+    const ReleaseValue: Release = {
+      Repository: { Owner: 'acme', Name: 'userscript' },
+      Title: 'Release',
+      Tag: 'v1.2.3',
+      Body: '',
+      Author: 'octocat',
+      Url: 'https://github.com/acme/userscript/releases/tag/v1.2.3',
+      IsPrerelease: false,
+      TargetCommitish: 'v1.2.3'
+    }
+    let PurgeJobCalls = 0
+    const Github = {
+      ResolveCommit: async () => '0123456789012345678901234567890123456789',
+      PackageJson: async () => JSON.stringify({ scripts: { build: 'build --SubscriptionUrl https://cdn.jsdelivr.net/npm/acme@latest/script.user.js' } }),
+      PurgeJobs: async () => {
+        PurgeJobCalls += 1
+        return PurgeJobCalls === 1
+          ? [{ Id: 1, Name: 'Purge jsdelivr cache', Status: 'in_progress', Conclusion: null, RunAttempt: 1 }]
+          : [{ Id: 1, Name: 'Purge jsdelivr cache', Status: 'completed', Conclusion: 'success', RunAttempt: 1 }]
+      },
+      RerunJob: async (RepositoryValue: Release['Repository'], JobId: number) => {
+        void RepositoryValue
+        RerunJobIds.push(JobId)
+      }
+    } as unknown as Parameters<typeof WaitForPurge>[0]
+    // Never consumed: the deadline pre-check must give up before ConfirmCdn is ever called.
+    const Request = RequestFrom([])
+    // Simulates a real-world gap leaving less than the next PropagationDelayMs before the poll deadline.
+    const Delay = async (DelayMs: number): Promise<void> => { if (DelayMs === 5_000) vi.advanceTimersByTime(490_000) }
+
+    await WaitForPurge(Github, ReleaseValue, 'token-value', undefined, Request, Delay, (Event) => Progress.push(Event))
+
+    assert.deepEqual(RerunJobIds, [])
+    assert.deepEqual(Progress.at(-1), {
+      Message: 'Purge verification gave up before CDN confirmation; proceeding without it', PollAttempt: 2, JobId: 1, RunAttempt: 1, RerunCount: 0, PropagationDelayMs: 120_000
+    })
+  } finally {
+    vi.useRealTimers()
+  }
 })
 
 test('rejects unsuccessful Globalping API responses', async () => {
