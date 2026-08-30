@@ -1,5 +1,5 @@
 import { Message, type Destination, type Repository } from '@webhook-noti/core'
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, Events, GatewayIntentBits, MessageFlags, PermissionFlagsBits, SlashCommandBuilder, StringSelectMenuBuilder, type GuildMember, type Interaction } from 'discord.js'
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, Events, GatewayIntentBits, MessageFlags, PermissionFlagsBits, SlashCommandBuilder, StringSelectMenuBuilder, type GuildMember, type Interaction, type MessageCreateOptions } from 'discord.js'
 import type { Dispatcher } from 'undici'
 import { RunGuarded } from './async-guard.js'
 import type { NotifierDatabase } from './database.js'
@@ -42,6 +42,14 @@ function ForgetComponents(Id: string, Language: Destination['Language']): Action
     new ButtonBuilder().setCustomId(`forget-confirm:${Id}`).setLabel(Message(Language, 'forgetConfirm')).setStyle(ButtonStyle.Danger),
     new ButtonBuilder().setCustomId(`forget-cancel:${Id}`).setLabel(Message(Language, 'forgetCancel')).setStyle(ButtonStyle.Secondary)
   )
+}
+
+export function DiscordNotificationPayload(Content: string): MessageCreateOptions {
+  return {
+    content: Content.slice(0, 2_000),
+    allowedMentions: { parse: [] },
+    flags: MessageFlags.SuppressEmbeds
+  }
 }
 
 export function CreateDiscord(Token: string, Database: NotifierDatabase, ListRepositories: () => Repository[], ProxyDispatcher?: Dispatcher): PlatformNotifier {
@@ -217,7 +225,7 @@ export function CreateDiscord(Token: string, Database: NotifierDatabase, ListRep
   void DiscordClient.login(Token)
   return {
     async Send(Destination, Content): Promise<void> {
-      const Payload = { content: Content.slice(0, 2_000), allowedMentions: { parse: [] as [] } }
+      const Payload = DiscordNotificationPayload(Content)
       if (Destination.Kind === 'discord-dm') {
         await (await DiscordClient.users.fetch(Destination.ExternalId)).send(Payload)
         return

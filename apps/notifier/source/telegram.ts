@@ -53,6 +53,13 @@ function ForgetKeyboard(Id: string, Language: Language): TelegramBot.InlineKeybo
   }
 }
 
+export function TelegramNotificationOptions(TopicId: number | null): TelegramBot.SendMessageOptions {
+  return {
+    ...(TopicId === null ? {} : { message_thread_id: TopicId }),
+    disable_web_page_preview: true
+  }
+}
+
 export function CreateTelegram(Token: string, Database: NotifierDatabase, ListRepositories: () => Repository[], ProxyUrl?: string): PlatformNotifier {
   // @types/request's `Options` union requires a `url`/`uri` field that a bare `agent` override never needs.
   const RequestOptions = ProxyUrl === undefined ? undefined : { agent: new HttpsProxyAgent(ProxyUrl) } as unknown as TelegramBot.ConstructorOptions['request']
@@ -211,7 +218,7 @@ export function CreateTelegram(Token: string, Database: NotifierDatabase, ListRe
   })
   return {
     async Send(Destination, Content): Promise<void> {
-      await Bot.sendMessage(Destination.ExternalId, Content.slice(0, 4_096), Destination.TopicId === null ? undefined : { message_thread_id: Destination.TopicId })
+      await Bot.sendMessage(Destination.ExternalId, Content.slice(0, 4_096), TelegramNotificationOptions(Destination.TopicId))
     }
   }
 }

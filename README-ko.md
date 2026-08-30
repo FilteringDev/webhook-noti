@@ -73,7 +73,7 @@ Telegram commands:
 
 ## 안전성 및 저장소
 
-원본 GitHub Markdown은 전송하지 않습니다. 본문은 안전한 평문으로 변환하고, `@mention`, Discord mention markup, `@everyone`, `@here`, `#channel` 형태는 zero-width separator로 재규격화합니다. Discord 전송 시에는 `allowedMentions.parse`도 빈 배열로 고정합니다. 메시지는 3,800자에서 잘리고 release URL이 덧붙여지며, 실제 전송 시 Discord는 2,000자, Telegram은 4,096자 한도를 따릅니다.
+원본 GitHub Markdown은 전송하지 않습니다. 본문은 안전한 평문으로 변환하고, `@mention`, Discord mention markup, `@everyone`, `@here`, `#channel` 형태는 zero-width separator로 재규격화합니다. Discord 전송 시에는 `allowedMentions.parse`도 빈 배열로 고정합니다. Release link는 클릭 가능한 상태로 유지하되 Discord embed와 Telegram link preview는 알림을 간결하게 표시하도록 비활성화합니다. 메시지는 3,800자에서 잘리고 release URL이 덧붙여지며, 실제 전송 시 Discord는 2,000자, Telegram은 4,096자 한도를 따릅니다.
 
 저장소별로 마지막으로 처리한 release의 `published_at`을 watermark로 기록합니다. 저장소를 처음 관측한 시점에는 기존 release를 모두 처리 완료로만 표시하고 알림은 보내지 않으므로, App을 새로 설치해도 과거 release가 한꺼번에 전송되지 않습니다. 이후에는 watermark보다 나중에 게시된 release만, release ID 기준으로 한 번씩만 전달합니다. 일시적 전송 오류와 `429`/`5xx` 응답일 때 각 destination 전달을 `[0ms, 250ms, 1000ms]` 간격으로 최대 3회 재시도하며, 잘못된 요청, 인증/권한 오류, 찾을 수 없는 대상은 재시도하지 않습니다. 성공/실패 여부와 오류 메시지를 database에 기록합니다.
 
