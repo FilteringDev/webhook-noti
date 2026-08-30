@@ -6,7 +6,6 @@ import type { GithubClient } from './github.js'
 const PurgeJobName = 'Purge jsdelivr cache'
 const PollIntervalMs = 5_000
 const PollTimeoutMs = 10 * 60_000
-const InitialPropagationDelayMs = 10_000
 const RequestedProbeCount = 100
 const GlobalpingApiUrl = 'https://api.globalping.io/v1/measurements'
 
@@ -219,7 +218,7 @@ export async function WaitForPurge(Github: GithubClient, ReleaseValue: Release, 
       const Attempt = `${Job.RunAttempt}:${Job.Id}`
       if (Job.Conclusion === 'success' && !ProcessedAttempts.has(Attempt)) {
         ProcessedAttempts.add(Attempt)
-        const PropagationDelayMs = RerunCount === 0 ? InitialPropagationDelayMs : RerunCount * InitialPropagationDelayMs + PollIntervalMs
+        const PropagationDelayMs = RerunCount * 90_000 + 120_000
         OnProgress?.({ Message: 'Purge job succeeded; waiting for CDN propagation', PollAttempt, JobId: Job.Id, RunAttempt: Job.RunAttempt, PropagationDelayMs, RerunCount })
         await Delay(PropagationDelayMs)
         try {

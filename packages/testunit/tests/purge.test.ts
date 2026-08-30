@@ -151,7 +151,7 @@ test('reruns an unconverged purge job and waits longer before checking its new a
   await WaitForPurge(Github, ReleaseValue, 'token-value', undefined, Request, async (DelayMs) => { Delays.push(DelayMs) }, (Event) => Progress.push(Event))
 
   assert.deepEqual(RerunJobIds, [1])
-  assert.deepEqual(Delays, [10_000, 5_000, 15_000])
+  assert.deepEqual(Delays, [120_000, 5_000, 210_000])
   assert.equal(Progress.filter((Event) => Event.Message === 'Purge job polled').length, 2)
   assert.deepEqual(Progress.find((Event) => Event.Message === 'Purge job rerun requested after CDN did not converge'), {
     Message: 'Purge job rerun requested after CDN did not converge', PollAttempt: 1, JobId: 1, RunAttempt: 1, RerunCount: 0
