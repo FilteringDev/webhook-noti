@@ -74,6 +74,26 @@ test('confirms a jsdelivr URL through 100 authenticated matching regional measur
   ])
 })
 
+test('confirms a jsdelivr URL through 75 authenticated matching regional measurements', async () => {
+  const Progress: Array<{ Message: string, Converged?: boolean, MatchingVersionCount?: number, ProbeCount?: number }> = []
+
+  await ConfirmCdn(new URL('https://cdn.jsdelivr.net/npm/acme@latest/script.user.js'), '1.2.3', 'token-value', undefined, RequestFrom([
+    { StatusCode: 202, Body: { id: 'measurement-id' } },
+    { StatusCode: 200, Body: { status: 'finished', results: [...MatchingResults('KR', 10), ...MatchingResults('US', 10), ...MatchingResults('DE', 55)] } }
+  ]), (Event) => Progress.push(Event))
+
+  assert.deepEqual(Progress.at(-1), {
+    Message: 'Globalping measurement converged', MeasurementId: 'measurement-id', PollAttempt: 1, ProbeCount: 75, Converged: true, ExpectedVersion: '1.2.3', HttpFailureCount: 0, InvalidProbeCount: 0, KoreanProbeCount: 10, MatchingVersionCount: 75, MissingVersionCount: 0, MismatchedVersionCount: 0, UnitedStatesProbeCount: 10
+  })
+})
+
+test('confirms a jsdelivr URL when Globalping returns 98 authenticated matching regional measurements', async () => {
+  await ConfirmCdn(new URL('https://cdn.jsdelivr.net/npm/acme@latest/script.user.js'), '1.2.3', 'token-value', undefined, RequestFrom([
+    { StatusCode: 202, Body: { id: 'measurement-id' } },
+    { StatusCode: 200, Body: { status: 'finished', results: [...MatchingResults('KR', 10), ...MatchingResults('US', 10), ...MatchingResults('DE', 78)] } }
+  ]))
+})
+
 test('uses a CONNECT tunnel when a SOCKS bridge URL is provided', async () => {
   const Requests: GlobalpingRequestOptions[] = []
   const Request: GlobalpingRequest = (Url, Options) => {
@@ -108,11 +128,11 @@ test('rejects completed Globalping measurements without 10 matching probes in ea
   )
 })
 
-test('rejects incomplete Globalping measurements and bodies without userscript versions', async () => {
+test('rejects Globalping measurements below the minimum probe count and bodies without userscript versions', async () => {
   await assert.rejects(
     ConfirmCdn(new URL('https://cdn.jsdelivr.net/npm/acme@latest/script.user.js'), '1.2.3', 'token-value', undefined, RequestFrom([
       { StatusCode: 202, Body: { id: 'measurement-id' } },
-      { StatusCode: 200, Body: { status: 'finished', results: MatchingResults('KR', 10).concat(MatchingResults('US', 10), MatchingResults('DE', 79)) } }
+      { StatusCode: 200, Body: { status: 'finished', results: MatchingResults('KR', 10).concat(MatchingResults('US', 10), MatchingResults('DE', 54)) } }
     ])),
     /before CDN content converged/
   )

@@ -7,7 +7,7 @@ const PurgeJobName = 'Purge jsdelivr cache'
 const PollIntervalMs = 5_000
 const PollTimeoutMs = 10 * 60_000
 const MaxRerunCount = 2
-const RequestedProbeCount = 100
+const MinimumProbeCount = 75
 const GlobalpingApiUrl = 'https://api.globalping.io/v1/measurements'
 
 export function SubscriptionUrlFromPackageJson(PackageJson: string): URL | null {
@@ -220,7 +220,7 @@ function ProbeSummaryFrom(Value: unknown, ExpectedVersion: string): ProbeSummary
     if (Country === 'KR') KoreanProbeCount += 1
     if (Country === 'US') UnitedStatesProbeCount += 1
   }
-  const Converged = Results.length === RequestedProbeCount && InvalidProbeCount === 0 && HttpFailureCount === 0 && MissingVersionCount === 0 && MismatchedVersionCount === 0 && KoreanProbeCount >= 10 && UnitedStatesProbeCount >= 10
+  const Converged = Results.length >= MinimumProbeCount && InvalidProbeCount === 0 && HttpFailureCount === 0 && MissingVersionCount === 0 && MismatchedVersionCount === 0 && KoreanProbeCount >= 10 && UnitedStatesProbeCount >= 10
   return { Converged, ExpectedVersion, HttpFailureCount, InvalidProbeCount, KoreanProbeCount, MatchingVersionCount, MissingVersionCount, MismatchedVersionCount, ProbeCount: Results.length, UnitedStatesProbeCount }
 }
 
