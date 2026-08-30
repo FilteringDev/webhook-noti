@@ -1,6 +1,6 @@
 import { Message, type Destination, type Repository } from '@webhook-noti/core'
 import { consola } from 'consola'
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, GatewayIntentBits, PermissionFlagsBits, SlashCommandBuilder, StringSelectMenuBuilder, type Interaction } from 'discord.js'
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, Events, GatewayIntentBits, MessageFlags, PermissionFlagsBits, SlashCommandBuilder, StringSelectMenuBuilder, type GuildMember, type Interaction } from 'discord.js'
 import type { Dispatcher } from 'undici'
 import { RunGuarded } from './async-guard.js'
 import type { NotifierDatabase } from './database.js'
@@ -51,7 +51,7 @@ export function CreateDiscord(Token: string, Database: NotifierDatabase, ListRep
   })
   const Selector = new RepositorySelector(ListRepositories)
   const ForgetConfirmations = new ForgetConfirmation()
-  DiscordClient.once('ready', () => {
+  DiscordClient.once(Events.ClientReady, () => {
     void DiscordClient.application?.commands.set(Commands.map((Command) => Command.toJSON()))
   })
   DiscordClient.on('interactionCreate', (Interaction) => {
@@ -67,7 +67,7 @@ export function CreateDiscord(Token: string, Database: NotifierDatabase, ListRep
       Deferred: Interaction.deferred,
       Replied: Interaction.replied,
       EditReply: async (ReplyContent) => { await Interaction.editReply({ content: ReplyContent, components: [] }) },
-      Reply: async (ReplyContent) => { await Interaction.reply({ content: ReplyContent, ephemeral: true }) }
+      Reply: async (ReplyContent) => { await Interaction.reply({ content: ReplyContent, flags: MessageFlags.Ephemeral }) }
     }, Content)
   }
   async function HandleInteraction(Interaction: Interaction): Promise<void> {
@@ -76,7 +76,7 @@ export function CreateDiscord(Token: string, Database: NotifierDatabase, ListRep
       const Language = Database.LanguageFor('discord', Interaction.user.id)
       const SourceId = Interaction.guildId ?? Interaction.user.id
       if (Operation === 'forget-confirm' && Interaction.guildId !== null && Interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild) !== true) {
-        await Interaction.reply({ content: Message(Language, 'forbidden'), ephemeral: true })
+        await Interaction.reply({ content: Message(Language, 'forbidden'), flags: MessageFlags.Ephemeral })
         return
       }
       const Scope = Id === undefined ? null : ForgetConfirmations.Take(Id, Interaction.user.id, SourceId)
@@ -101,19 +101,19 @@ export function CreateDiscord(Token: string, Database: NotifierDatabase, ListRep
       const Language = Database.LanguageFor('discord', Interaction.user.id)
       const IsDirectMessage = Interaction.guildId === null
       if (!(IsDirectMessage || Interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels) === true)) {
-        await Interaction.reply({ content: Message(Language, 'forbidden'), ephemeral: true })
+        await Interaction.reply({ content: Message(Language, 'forbidden'), flags: MessageFlags.Ephemeral })
         return
       }
       if (Operation === 'repository-previous' || Operation === 'repository-next') {
         const Page = Operation === 'repository-previous' ? Selector.Previous(Id, Context) : Selector.Next(Id, Context)
-        if (Page === null) await Interaction.reply({ content: Message(Language, 'selectionExpired'), ephemeral: true })
+        if (Page === null) await Interaction.reply({ content: Message(Language, 'selectionExpired'), flags: MessageFlags.Ephemeral })
         else await Interaction.update({ components: Components(Page) })
         return
       }
       if (!Interaction.isStringSelectMenu()) return
       const Selected = Selector.Select(Id, Context, Interaction.values[0] ?? '')
       if (Selected === null) {
-        await Interaction.reply({ content: Message(Language, 'selectionExpired'), ephemeral: true })
+        await Interaction.reply({ content: Message(Language, 'selectionExpired'), flags: MessageFlags.Ephemeral })
         return
       }
       if (Selected.Action === 'unsubscribe') {
@@ -137,7 +137,7 @@ export function CreateDiscord(Token: string, Database: NotifierDatabase, ListRep
     async function Reply(Content: string): Promise<void> {
       if (Interaction.isRepliable()) {
         if (Interaction.deferred) await Interaction.editReply({ content: Content, components: [] })
-        else await Interaction.reply({ content: Content, ephemeral: true })
+        else await Interaction.reply({ content: Content, flags: MessageFlags.Ephemeral })
       }
     }
     if (Interaction.commandName === 'language') {
@@ -156,7 +156,7 @@ export function CreateDiscord(Token: string, Database: NotifierDatabase, ListRep
         ? { Platform: 'discord', Type: 'dm', ExternalId: Interaction.user.id }
         : { Platform: 'discord', Type: 'guild', GuildId: Interaction.guildId }
       const Id = ForgetConfirmations.Create(Interaction.user.id, SourceId, Scope)
-      await Interaction.reply({ content: Message(Language, IsDirectMessage ? 'forgetDmWarning' : 'forgetGuildWarning'), components: [ForgetComponents(Id, Language)], ephemeral: true })
+      await Interaction.reply({ content: Message(Language, IsDirectMessage ? 'forgetDmWarning' : 'forgetGuildWarning'), components: [ForgetComponents(Id, Language)], flags: MessageFlags.Ephemeral })
       return
     }
     const CanManage = IsDirectMessage || Interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels) === true
@@ -165,7 +165,7 @@ export function CreateDiscord(Token: string, Database: NotifierDatabase, ListRep
       return
     }
     const RequiresRemoteLookup = Interaction.commandName === 'routes' || Interaction.commandName === 'subscribe' || Interaction.commandName === 'unsubscribe'
-    if (RequiresRemoteLookup) await Interaction.deferReply({ ephemeral: true })
+    if (RequiresRemoteLookup) await Interaction.deferReply({ flags: MessageFlags.Ephemeral })
     if (Interaction.commandName === 'routes') {
       if (Interaction.guild === null) {
         await Reply(Message(Language, 'routesGuildOnly'))
@@ -187,7 +187,10 @@ export function CreateDiscord(Token: string, Database: NotifierDatabase, ListRep
         await Reply(Message(Language, 'failed'))
         return
       }
-      if (!('permissionsFor' in Channel) || Channel.permissionsFor(Interaction.user.id)?.has(PermissionFlagsBits.ManageChannels) !== true) {
+      const HasPermission = ExternalId === Interaction.channelId
+        ? Interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels) === true
+        : 'permissionsFor' in Channel && Interaction.member !== null && Channel.permissionsFor(Interaction.member as GuildMember)?.has(PermissionFlagsBits.ManageChannels) === true
+      if (!HasPermission) {
         await Reply(Message(Language, 'forbidden'))
         return
       }
@@ -199,8 +202,12 @@ export function CreateDiscord(Token: string, Database: NotifierDatabase, ListRep
         : Interaction.commandName === 'dm' ? 'dm-enable' : 'subscribe'
     const SourceId = IsDirectMessage ? Interaction.user.id : Interaction.channelId
     const Page = Selector.Create({ Action, ExternalId, IncludePrerelease: Interaction.options.getBoolean('prerelease') ?? false, OwnerId: Interaction.user.id, SourceId, TopicId: null })
-    if (Interaction.deferred) await Interaction.editReply({ components: Components(Page) })
-    else await Interaction.reply({ components: Components(Page), ephemeral: true })
+    if (Page.Repositories.length === 0) {
+      await Reply(Message(Language, 'routesEmpty'))
+      return
+    }
+    if (Interaction.deferred) await Interaction.editReply({ content: '', components: Components(Page) })
+    else await Interaction.reply({ components: Components(Page), flags: MessageFlags.Ephemeral })
   }
   void DiscordClient.login(Token)
   return {
