@@ -1,8 +1,8 @@
 import { RepositorySlug, type Repository } from '@webhook-noti/core'
-import { consola } from 'consola'
 import type { GithubClient } from './github.js'
+import { Logger as RootLogger } from './logging.js'
 
-const Logger = consola.withTag('installations')
+const Logger = RootLogger.withTag('installations')
 const RefreshIntervalMilliseconds = 10 * 60 * 1_000
 
 export class InstallationRegistry {

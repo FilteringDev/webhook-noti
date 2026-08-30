@@ -1,5 +1,4 @@
 import { SafeReleaseMessage, RepositorySlug, type Release } from '@webhook-noti/core'
-import { consola } from 'consola'
 import { bootstrap } from 'global-agent'
 import { createServer } from 'node:http'
 import { ProxyAgent } from 'undici'
@@ -9,12 +8,13 @@ import { CreateDiscord } from './discord.js'
 import { GetEnvironment } from './env.js'
 import { GithubClient } from './github.js'
 import { InstallationRegistry } from './installations.js'
+import { Logger as RootLogger } from './logging.js'
 import { CreateReleasePoller } from './poller.js'
 import { PurgeProgressMessage, WaitForPurge } from './purge.js'
 import { StartSocksBridge } from './socks-bridge.js'
 import { CreateTelegram } from './telegram.js'
 
-const Logger = consola.withTag('notifier')
+const Logger = RootLogger.withTag('notifier')
 
 async function Bootstrap(): Promise<void> {
   try {

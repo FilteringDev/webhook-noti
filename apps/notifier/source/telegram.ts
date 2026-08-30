@@ -1,14 +1,14 @@
 import { Message, type Destination, type Language, type Repository } from '@webhook-noti/core'
-import { consola } from 'consola'
 import { HttpsProxyAgent } from 'https-proxy-agent'
 import TelegramBot from 'node-telegram-bot-api'
 import { RunGuarded } from './async-guard.js'
 import type { NotifierDatabase } from './database.js'
 import { IsTransientError, type PlatformNotifier } from './delivery.js'
 import { ForgetConfirmation, type ForgetScope } from './forget.js'
+import { Logger as RootLogger } from './logging.js'
 import { RepositorySelector, type SelectionPage } from './selection.js'
 
-const Logger = consola.withTag('telegram')
+const Logger = RootLogger.withTag('telegram')
 
 function ObjectValue(Value: unknown): Record<string, unknown> | undefined {
   return Value !== null && typeof Value === 'object' ? Value as Record<string, unknown> : undefined

@@ -1,9 +1,9 @@
 import { RepositorySlug, type Release, type Repository } from '@webhook-noti/core'
-import { consola } from 'consola'
 import type { NotifierDatabase } from './database.js'
 import type { ReleasePage } from './github.js'
+import { Logger as RootLogger } from './logging.js'
 
-const Logger = consola.withTag('poller')
+const Logger = RootLogger.withTag('poller')
 const DefaultIntervalMilliseconds = 60_000
 
 export interface PolledRelease {

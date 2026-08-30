@@ -1,8 +1,8 @@
 import type { Destination } from '@webhook-noti/core'
-import { consola } from 'consola'
 import type { NotifierDatabase } from './database.js'
+import { Logger as RootLogger } from './logging.js'
 
-const Logger = consola.withTag('delivery')
+const Logger = RootLogger.withTag('delivery')
 const RetryDelaysMs = [250, 1_000] as const
 const MaximumRetryAfterMs = 30_000
 const TransientNetworkCodes = new Set([

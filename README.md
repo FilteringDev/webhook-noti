@@ -13,6 +13,8 @@ The notifier checks each installed repository's release list every 60 seconds wi
 
 Compose exposes no host ports. `/healthz` returns `200 ok` and is used only for the container health check (30-second interval, 5-second timeout, 3 retries). Every other path returns `404`.
 
+Application logs are written to stdout as one JSON object per line, in emission order. Every record has `timestamp`, `level`, `tag`, `message`, and `context` fields. Error names, messages, stacks, causes, and diagnostic properties are preserved, while values under credential-like keys such as tokens, authorization headers, passwords, secrets, cookies, and private or API keys are replaced with `[REDACTED]`.
+
 ### Environment Variables
 
 | Variable | Required | Default | Description |

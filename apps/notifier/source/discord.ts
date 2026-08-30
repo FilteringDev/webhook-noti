@@ -1,5 +1,4 @@
 import { Message, type Destination, type Repository } from '@webhook-noti/core'
-import { consola } from 'consola'
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, Events, GatewayIntentBits, MessageFlags, PermissionFlagsBits, SlashCommandBuilder, StringSelectMenuBuilder, type GuildMember, type Interaction } from 'discord.js'
 import type { Dispatcher } from 'undici'
 import { RunGuarded } from './async-guard.js'
@@ -7,9 +6,10 @@ import type { NotifierDatabase } from './database.js'
 import type { PlatformNotifier } from './delivery.js'
 import { DiscordInteractionErrorDetails, ReplyWithFailure } from './discord-response.js'
 import { ForgetConfirmation, type ForgetScope } from './forget.js'
+import { Logger as RootLogger } from './logging.js'
 import { RepositorySelector, type RepositoryAction, type SelectionPage } from './selection.js'
 
-const Logger = consola.withTag('discord')
+const Logger = RootLogger.withTag('discord')
 
 const Commands = [
   new SlashCommandBuilder().setName('subscribe').setDescription('Subscribe this destination to a repository').addChannelOption((Option) => Option.setName('channel').setDescription('Channel to receive release notifications')).addBooleanOption((Option) => Option.setName('prerelease').setDescription('Include prereleases')),

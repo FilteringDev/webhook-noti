@@ -13,6 +13,8 @@ notifier는 60초마다 설치된 각 저장소의 release 목록을 `ETag` 조�
 
 Compose는 host port를 열지 않습니다. `/healthz`는 `200 ok`를 반환하며 컨테이너 health check(30초 간격, 5초 timeout, 3회 재시도)에만 사용합니다. 다른 경로는 모두 `404`입니다.
 
+애플리케이션 로그는 발생 순서대로 한 줄에 하나의 JSON 객체 형태로 stdout에 기록됩니다. 각 레코드는 `timestamp`, `level`, `tag`, `message`, `context` 필드를 가집니다. 오류의 이름, 메시지, 스택, 원인 및 진단 속성은 보존하되 token, authorization header, password, secret, cookie, private key, API key 등 인증정보 성격의 키에 속한 값은 `[REDACTED]`로 대체합니다.
+
 ### 환경변수
 
 | 변수 | 필수 | 기본값 | 설명 |
