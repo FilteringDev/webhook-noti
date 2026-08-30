@@ -184,7 +184,11 @@ export function CreateTelegram(Token: string, Database: NotifierDatabase, ListRe
     if (Selected.Action === 'unsubscribe') Result = Database.RemoveDestination('telegram', Selected.ExternalId, Selected.Repository, Selected.TopicId) ? 'unsubscribed' : 'failed'
     else {
       const Kind: Destination['Kind'] = DirectMessage ? 'telegram-dm' : Selected.TopicId === null ? 'telegram-chat' : 'telegram-topic'
-      Database.SaveDestination({ ExternalId: Selected.ExternalId, GuildId: null, IncludePrerelease: Selected.IncludePrerelease, Kind, Language, OwnerId: String(Callback.from.id), Platform: 'telegram', Repository: Selected.Repository, TopicId: Selected.TopicId })
+      const Activated = Database.SaveDestination({ ExternalId: Selected.ExternalId, GuildId: null, IncludePrerelease: Selected.IncludePrerelease, Kind, Language, OwnerId: String(Callback.from.id), Platform: 'telegram', Repository: Selected.Repository, TopicId: Selected.TopicId })
+      if (Activated !== undefined) {
+        const Summary = Database.ActiveDestinationSummary()
+        Logger.info({ message: 'Active destination added', Destination: Activated, ActiveDestinationCount: Activated === 'telegram-chat' ? Summary.TelegramChats : Summary.TelegramUsers })
+      }
       Result = Selected.Action === 'dm-enable' ? 'dmEnabled' : 'subscribed'
     }
     await Bot.editMessageText(Message(Language, Result), { chat_id: MessageValue.chat.id, message_id: MessageValue.message_id })

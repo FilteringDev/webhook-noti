@@ -22,6 +22,7 @@ async function Bootstrap(): Promise<void> {
     Logger.info({ message: 'Configuration loaded' })
     const Database = await NotifierDatabase.Open(Config.DataDirectory)
     Logger.info({ message: 'Database opened' })
+    Logger.info({ message: 'Active destinations loaded', ...Database.ActiveDestinationSummary() })
     const SocksBridge = Config.SocksProxyUrl === undefined ? undefined : await StartSocksBridge(Config.SocksProxyUrl)
     const ProxyDispatcher = SocksBridge === undefined ? undefined : new ProxyAgent(SocksBridge.Url)
     if (SocksBridge !== undefined) {

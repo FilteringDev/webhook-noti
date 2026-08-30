@@ -45,6 +45,15 @@ export interface ReleaseWatermark {
   PublishedAt: string
 }
 
+export type ActiveDestination = 'discord-server' | 'discord-user' | 'telegram-chat' | 'telegram-user'
+
+export interface ActiveDestinationSummary {
+  DiscordServers: number
+  DiscordUsers: number
+  TelegramChats: number
+  TelegramUsers: number
+}
+
 export class NotifierDatabase {
   readonly #Database: Database
   readonly #Path: string
@@ -119,7 +128,8 @@ export class NotifierDatabase {
     this.#Database.close()
   }
 
-  SaveDestination(Destination: SaveDestination): void {
+  SaveDestination(Destination: SaveDestination): ActiveDestination | undefined {
+    const Activated = this.#ActivatedDestination(Destination)
     this.#Database.run([
       'INSERT INTO destinations (',
       '  platform, kind, external_id, topic_id, owner_id, guild_id, repository_owner, repository_name, language, direct_message, include_prerelease',
@@ -132,6 +142,16 @@ export class NotifierDatabase {
       Destination.Kind.endsWith('-dm') ? 1 : 0, Destination.IncludePrerelease ? 1 : 0
     ])
     this.#Persist()
+    return Activated
+  }
+
+  ActiveDestinationSummary(): ActiveDestinationSummary {
+    return {
+      DiscordServers: this.#Count('SELECT COUNT(DISTINCT guild_id) FROM destinations WHERE platform = ? AND direct_message = 0 AND guild_id IS NOT NULL', ['discord']),
+      DiscordUsers: this.#Count('SELECT COUNT(DISTINCT external_id) FROM destinations WHERE platform = ? AND direct_message = 1', ['discord']),
+      TelegramChats: this.#Count('SELECT COUNT(DISTINCT external_id) FROM destinations WHERE platform = ? AND direct_message = 0', ['telegram']),
+      TelegramUsers: this.#Count('SELECT COUNT(DISTINCT external_id) FROM destinations WHERE platform = ? AND direct_message = 1', ['telegram'])
+    }
   }
 
   LanguageFor(Platform: Platform, ExternalId: string): Language {
@@ -283,6 +303,47 @@ export class NotifierDatabase {
       'VALUES (?, ?, ?, ?)'
     ].join('\n'), [DestinationId, ReleaseKey, Status, ErrorMessage ?? null])
     this.#Persist()
+  }
+
+  #ActivatedDestination(Destination: SaveDestination): ActiveDestination | undefined {
+    const ActiveDestination = Destination.Kind === 'discord-channel' && Destination.GuildId !== null
+      ? 'discord-server'
+      : Destination.Kind === 'discord-dm'
+        ? 'discord-user'
+        : Destination.Kind === 'telegram-dm'
+          ? 'telegram-user'
+          : Destination.Platform === 'telegram'
+            ? 'telegram-chat'
+            : undefined
+    if (ActiveDestination === undefined) return undefined
+    let Query: string
+    let Parameters: (string | null)[]
+    if (ActiveDestination === 'discord-server') {
+      Query = 'SELECT 1 FROM destinations WHERE platform = ? AND direct_message = 0 AND guild_id = ?'
+      Parameters = ['discord', Destination.GuildId]
+    } else if (ActiveDestination === 'discord-user') {
+      Query = 'SELECT 1 FROM destinations WHERE platform = ? AND direct_message = 1 AND external_id = ?'
+      Parameters = ['discord', Destination.ExternalId]
+    } else if (ActiveDestination === 'telegram-chat') {
+      Query = 'SELECT 1 FROM destinations WHERE platform = ? AND direct_message = 0 AND external_id = ?'
+      Parameters = ['telegram', Destination.ExternalId]
+    } else {
+      Query = 'SELECT 1 FROM destinations WHERE platform = ? AND direct_message = 1 AND external_id = ?'
+      Parameters = ['telegram', Destination.ExternalId]
+    }
+    const Statement = this.#Database.prepare(Query)
+    Statement.bind(Parameters)
+    const AlreadyActive = Statement.step()
+    Statement.free()
+    return AlreadyActive ? undefined : ActiveDestination
+  }
+
+  #Count(Query: string, Parameters: string[]): number {
+    const Statement = this.#Database.prepare(Query)
+    Statement.bind(Parameters)
+    const Count = Statement.step() ? Statement.get()[0] : 0
+    Statement.free()
+    return typeof Count === 'number' ? Count : 0
   }
 
   #Persist(): void {

@@ -95,6 +95,27 @@ test('stores repository-specific channel and topic routes', async () => {
   }
 })
 
+test('summarizes active destinations and identifies first activations', async () => {
+  const Directory = mkdtempSync(join(tmpdir(), 'webhook-noti-'))
+  const RepositoryA = { Owner: 'acme', Name: 'api' }
+  const RepositoryB = { Owner: 'acme', Name: 'worker' }
+  try {
+    const Database = await NotifierDatabase.Open(Directory)
+    assert.deepEqual(Database.ActiveDestinationSummary(), { DiscordServers: 0, DiscordUsers: 0, TelegramChats: 0, TelegramUsers: 0 })
+
+    assert.equal(Database.SaveDestination({ ExternalId: 'discord-channel-a', GuildId: 'discord-guild', IncludePrerelease: false, Kind: 'discord-channel', Language: 'en', OwnerId: 'discord-owner', Platform: 'discord', Repository: RepositoryA, TopicId: null }), 'discord-server')
+    assert.equal(Database.SaveDestination({ ExternalId: 'discord-channel-b', GuildId: 'discord-guild', IncludePrerelease: false, Kind: 'discord-channel', Language: 'en', OwnerId: 'discord-owner', Platform: 'discord', Repository: RepositoryB, TopicId: null }), undefined)
+    assert.equal(Database.SaveDestination({ ExternalId: 'discord-user', GuildId: null, IncludePrerelease: false, Kind: 'discord-dm', Language: 'en', OwnerId: 'discord-user', Platform: 'discord', Repository: RepositoryA, TopicId: null }), 'discord-user')
+    assert.equal(Database.SaveDestination({ ExternalId: 'telegram-chat', GuildId: null, IncludePrerelease: false, Kind: 'telegram-chat', Language: 'en', OwnerId: 'telegram-owner', Platform: 'telegram', Repository: RepositoryA, TopicId: null }), 'telegram-chat')
+    assert.equal(Database.SaveDestination({ ExternalId: 'telegram-chat', GuildId: null, IncludePrerelease: false, Kind: 'telegram-topic', Language: 'en', OwnerId: 'telegram-owner', Platform: 'telegram', Repository: RepositoryB, TopicId: 123 }), undefined)
+    assert.equal(Database.SaveDestination({ ExternalId: 'telegram-user', GuildId: null, IncludePrerelease: false, Kind: 'telegram-dm', Language: 'en', OwnerId: 'telegram-user', Platform: 'telegram', Repository: RepositoryA, TopicId: null }), 'telegram-user')
+
+    assert.deepEqual(Database.ActiveDestinationSummary(), { DiscordServers: 1, DiscordUsers: 1, TelegramChats: 1, TelegramUsers: 1 })
+  } finally {
+    rmSync(Directory, { force: true, recursive: true })
+  }
+})
+
 test('lists only scoped non-DM subscription routes', async () => {
   const Directory = mkdtempSync(join(tmpdir(), 'webhook-noti-'))
   try {
