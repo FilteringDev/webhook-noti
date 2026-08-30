@@ -6,6 +6,8 @@ import type { GithubClient } from './github.js'
 const PurgeJobName = 'Purge jsdelivr cache'
 const PollIntervalMs = 5_000
 const PollTimeoutMs = 10 * 60_000
+const InitialPropagationDelayMs = 10_000
+const RequestedProbeCount = 100
 const GlobalpingApiUrl = 'https://api.globalping.io/v1/measurements'
 
 export function SubscriptionUrlFromPackageJson(PackageJson: string): URL | null {
@@ -84,15 +86,37 @@ function MeasurementId(Value: unknown): string {
   return (Value as { id: string }).id
 }
 
-function HasSuccessfulProbe(Value: unknown): boolean {
+function UserscriptVersion(Value: string): string | null {
+  const Match = /^\s*\/\/\s*@version\s+(\S+)\s*$/m.exec(Value)
+  if (Match?.[1] === undefined) return null
+  return Match[1].replace(/^v/, '')
+}
+
+function ReleaseVersion(Tag: string): string {
+  const Version = Tag.replace(/^v/, '')
+  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(Version)) {
+    throw new Error(`Release tag is not a semver version: ${Tag}`)
+  }
+  return Version
+}
+
+function HasConvergedProbes(Value: unknown, ExpectedVersion: string): boolean {
   if (typeof Value !== 'object' || Value === null || !Array.isArray((Value as { results?: unknown }).results)) return false
-  return (Value as { results: unknown[] }).results.some((Result) => {
+  const Results = (Value as { results: unknown[] }).results
+  if (Results.length !== RequestedProbeCount) return false
+  let KoreanProbeCount = 0
+  let UnitedStatesProbeCount = 0
+  return Results.every((Result) => {
     if (typeof Result !== 'object' || Result === null) return false
     const HttpResult = (Result as { result?: unknown }).result
-    if (typeof HttpResult !== 'object' || HttpResult === null || typeof (HttpResult as { statusCode?: unknown }).statusCode !== 'number') return false
+    const Country = (Result as { probe?: { country?: unknown } }).probe?.country
+    if (typeof HttpResult !== 'object' || HttpResult === null || typeof (HttpResult as { statusCode?: unknown }).statusCode !== 'number' || typeof (HttpResult as { body?: unknown }).body !== 'string') return false
     const StatusCode = (HttpResult as { statusCode: number }).statusCode
-    return StatusCode >= 200 && StatusCode < 300
-  })
+    if (StatusCode < 200 || StatusCode >= 300 || UserscriptVersion((HttpResult as { body: string }).body) !== ExpectedVersion) return false
+    if (Country === 'KR') KoreanProbeCount += 1
+    if (Country === 'US') UnitedStatesProbeCount += 1
+    return true
+  }) && KoreanProbeCount >= 10 && UnitedStatesProbeCount >= 10
 }
 
 function MeasurementFinished(Value: unknown): boolean {
@@ -101,7 +125,10 @@ function MeasurementFinished(Value: unknown): boolean {
   return Status === 'finished' || Status === 'completed'
 }
 
-export async function ConfirmCdn(Url: URL, ApiToken: string, ProxyUrl?: string, Request: GlobalpingRequest = SecureRequest): Promise<void> {
+class CdnNotConvergedError extends Error {}
+
+export async function ConfirmCdn(Url: URL, ReleaseTag: string, ApiToken: string, ProxyUrl?: string, Request: GlobalpingRequest = SecureRequest): Promise<void> {
+  const ExpectedVersion = ReleaseVersion(ReleaseTag)
   const RequestPath = `${Url.pathname}${Url.search}`
   const CreateConnection = ProxyUrl === undefined ? undefined : (Options: { Hostname: string, Port: number }) => ConnectTunnel(ProxyUrl, Options.Hostname, Options.Port)
   const Headers = { authorization: `Bearer ${ApiToken}`, 'content-type': 'application/json' }
@@ -113,15 +140,15 @@ export async function ConfirmCdn(Url: URL, ApiToken: string, ProxyUrl?: string, 
     Payload: JSON.stringify({
       type: 'http',
       target: Url.hostname,
-      locations: [{ magic: 'World' }],
-      measurementOptions: { protocol: 'HTTPS', request: { method: 'HEAD', path: RequestPath } }
+      locations: [{ country: 'KR', limit: 10 }, { country: 'US', limit: 10 }, { magic: 'World', limit: 80 }],
+      measurementOptions: { protocol: 'HTTPS', request: { method: 'GET', path: RequestPath } }
     })
   }))
   const Deadline = Date.now() + PollTimeoutMs
   while (Date.now() < Deadline) {
     const Measurement = await GlobalpingResponse(Request, new URL(`${GlobalpingApiUrl}/${Id}`), { ...(CreateConnection === undefined ? {} : { CreateConnection }), ExpectedAs: 'JSON', HttpHeaders: Headers })
-    if (HasSuccessfulProbe(Measurement)) return
-    if (MeasurementFinished(Measurement)) throw new Error('Globalping measurement completed without a successful HTTP response')
+    if (HasConvergedProbes(Measurement, ExpectedVersion)) return
+    if (MeasurementFinished(Measurement)) throw new CdnNotConvergedError('Globalping measurement completed before CDN content converged')
     await Wait(PollIntervalMs)
   }
   throw new Error(`Timed out waiting for Globalping measurement ${Id}`)
@@ -133,24 +160,37 @@ function Wait(Delay: number): Promise<void> {
   return new Promise((Resolve) => setTimeout(Resolve, Delay))
 }
 
-export async function WaitForPurge(Github: GithubClient, ReleaseValue: Release, GlobalpingApiToken: string, ProxyUrl?: string): Promise<void> {
+export async function WaitForPurge(Github: GithubClient, ReleaseValue: Release, GlobalpingApiToken: string, ProxyUrl?: string, Request: GlobalpingRequest = SecureRequest, Delay: (DelayMs: number) => Promise<void> = Wait): Promise<void> {
   const CommitSha = await Github.ResolveCommit(ReleaseValue.Repository, ReleaseValue.TargetCommitish)
   const Url = SubscriptionUrlFromPackageJson(await Github.PackageJson(ReleaseValue.Repository, CommitSha))
   if (Url === null) return
 
   const Deadline = Date.now() + PollTimeoutMs
-  const RerunJobs = new Set<number>()
+  const ProcessedAttempts = new Set<string>()
+  let RerunCount = 0
   while (Date.now() < Deadline) {
     const Jobs = await Github.PurgeJobs(ReleaseValue.Repository, CommitSha)
-    if (Jobs.some((Job) => Job.Name === PurgeJobName && Job.Conclusion === 'success')) return ConfirmCdn(Url, GlobalpingApiToken, ProxyUrl)
-
-    for (const Job of Jobs) {
-      if (Job.Name === PurgeJobName && Job.Status === 'completed' && !RerunJobs.has(Job.Id)) {
-        RerunJobs.add(Job.Id)
+    const Job = Jobs.filter((Candidate) => Candidate.Name === PurgeJobName).sort((Left, Right) => Right.RunAttempt - Left.RunAttempt || Right.Id - Left.Id)[0]
+    if (Job !== undefined) {
+      const Attempt = `${Job.RunAttempt}:${Job.Id}`
+      if (Job.Conclusion === 'success' && !ProcessedAttempts.has(Attempt)) {
+        ProcessedAttempts.add(Attempt)
+        await Delay(RerunCount === 0 ? InitialPropagationDelayMs : RerunCount * InitialPropagationDelayMs + PollIntervalMs)
+        try {
+          await ConfirmCdn(Url, ReleaseValue.Tag, GlobalpingApiToken, ProxyUrl, Request)
+          return
+        } catch (CaughtError) {
+          if (!(CaughtError instanceof CdnNotConvergedError)) throw CaughtError
+          await Github.RerunJob(ReleaseValue.Repository, Job.Id)
+          RerunCount += 1
+        }
+      } else if (Job.Status === 'completed' && !ProcessedAttempts.has(Attempt)) {
+        ProcessedAttempts.add(Attempt)
         await Github.RerunJob(ReleaseValue.Repository, Job.Id)
+        RerunCount += 1
       }
     }
-    await Wait(PollIntervalMs)
+    await Delay(PollIntervalMs)
   }
   throw new Error(`Timed out waiting for ${PurgeJobName} at ${CommitSha}`)
 }

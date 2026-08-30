@@ -15,6 +15,7 @@ export interface WorkflowJob {
   Name: string
   Status: string
   Conclusion: string | null
+  RunAttempt: number
 }
 
 export interface ReleasePage {
@@ -166,7 +167,8 @@ export class GithubClient {
     const Runs = (RunsResponse.data as { workflow_runs?: unknown }).workflow_runs
     if (!Array.isArray(Runs)) throw new Error(`GitHub did not return workflow runs for ${CommitSha}`)
     const Jobs = await Promise.all(Runs.map(async (Run) => {
-      if (typeof Run !== 'object' || Run === null || typeof (Run as { id?: unknown }).id !== 'number') return []
+      if (typeof Run !== 'object' || Run === null || typeof (Run as { id?: unknown }).id !== 'number' || typeof (Run as { run_attempt?: unknown }).run_attempt !== 'number') return []
+      const RunValue = Run as { id: number, run_attempt: number }
       const Response = await Client.request('GET /repos/{owner}/{repo}/actions/runs/{run_id}/jobs', { ...GithubParameters(RepositoryValue), run_id: (Run as { id: number }).id, per_page: 100 })
       const RunJobs = (Response.data as { jobs?: unknown }).jobs
       if (!Array.isArray(RunJobs)) return []
@@ -174,7 +176,7 @@ export class GithubClient {
         if (typeof Job !== 'object' || Job === null) return []
         const Value = Job as { id?: unknown, name?: unknown, status?: unknown, conclusion?: unknown }
         if (Value.name !== 'Purge jsdelivr cache' || typeof Value.id !== 'number' || typeof Value.status !== 'string' || (typeof Value.conclusion !== 'string' && Value.conclusion !== null)) return []
-        return [{ Id: Value.id, Name: Value.name, Status: Value.status, Conclusion: Value.conclusion }]
+        return [{ Id: Value.id, Name: Value.name, Status: Value.status, Conclusion: Value.conclusion, RunAttempt: RunValue.run_attempt }]
       })
     }))
     return Jobs.flat()
