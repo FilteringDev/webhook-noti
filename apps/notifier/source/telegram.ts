@@ -65,6 +65,7 @@ export function CreateTelegram(Token: string, Database: NotifierDatabase, ListRe
   Bot.on('message', (Update) => {
     RunGuarded(async () => {
     if (Update.text === undefined || Update.from === undefined) return
+    const SenderId = Update.from.id
     const { Command, Argument } = ParseCommand(Update.text)
     if (!['/subscribe', '/unsubscribe', '/language', '/dm', '/routes', '/forget'].includes(Command)) return
     const Language: Language = Command === '/language'
@@ -72,6 +73,11 @@ export function CreateTelegram(Token: string, Database: NotifierDatabase, ListRe
       : Database.LanguageFor('telegram', String(Update.from.id))
     async function Send(Text: string): Promise<void> {
       await Bot.sendMessage(Update.chat.id, Text, { message_thread_id: Update.message_thread_id })
+    }
+    async function SendPermissionDenied(): Promise<void> {
+      try {
+        await Bot.sendMessage(SenderId, Message(Language, 'forbidden'))
+      } catch {}
     }
     if (Command === '/language') {
       Database.SetLanguage('telegram', String(Update.from.id), Language)
@@ -83,7 +89,7 @@ export function CreateTelegram(Token: string, Database: NotifierDatabase, ListRe
       if (!DirectMessage) {
         const Administrators = await Bot.getChatAdministrators(Update.chat.id)
         if (!Administrators.some((Administrator) => Administrator.user.id === Update.from?.id)) {
-          await Send(Message(Language, 'forbidden'))
+          await SendPermissionDenied()
           return
         }
       }
@@ -98,7 +104,7 @@ export function CreateTelegram(Token: string, Database: NotifierDatabase, ListRe
     if (!DirectMessage) {
       const Administrators = await Bot.getChatAdministrators(Update.chat.id)
       if (!Administrators.some((Administrator) => Administrator.user.id === Update.from?.id)) {
-        await Send(Message(Language, 'forbidden'))
+        await SendPermissionDenied()
         return
       }
     }
