@@ -35,13 +35,14 @@ test('rejects an insecure userscript SubscriptionUrl', () => {
 
 test('confirms a jsdelivr URL through 100 authenticated matching regional measurements', async () => {
   const Requests: Array<{ Url: URL, Options: GlobalpingRequestOptions }> = []
+  const Progress: Array<{ Message: string, MeasurementId?: string, PollAttempt?: number, ProbeCount?: number }> = []
   const Request: GlobalpingRequest = (Url, Options) => {
     Requests.push({ Url, Options })
     if (Requests.length === 1) return Promise.resolve({ StatusCode: 202, Body: { id: 'measurement-id' } })
     return Promise.resolve({ StatusCode: 200, Body: { status: 'finished', results: [...MatchingResults('KR', 10), ...MatchingResults('US', 10), ...MatchingResults('DE', 80)] } })
   }
 
-  await ConfirmCdn(new URL('https://cdn.jsdelivr.net/npm/acme@latest/dist/script.user.js?raw=1'), 'v1.2.3', 'token-value', undefined, Request)
+  await ConfirmCdn(new URL('https://cdn.jsdelivr.net/npm/acme@latest/dist/script.user.js?raw=1'), 'v1.2.3', 'token-value', undefined, Request, (Event) => Progress.push(Event))
 
   assert.equal(Requests.length, 2)
   assert.equal(Requests[0]?.Url.href, 'https://api.globalping.io/v1/measurements')
@@ -53,6 +54,11 @@ test('confirms a jsdelivr URL through 100 authenticated matching regional measur
     measurementOptions: { protocol: 'HTTPS', request: { method: 'GET', path: '/npm/acme@latest/dist/script.user.js?raw=1' } }
   })
   assert.equal(Requests[1]?.Url.href, 'https://api.globalping.io/v1/measurements/measurement-id')
+  assert.deepEqual(Progress, [
+    { Message: 'Globalping measurement created', MeasurementId: 'measurement-id', ExpectedVersion: '1.2.3' },
+    { Message: 'Globalping measurement polled', MeasurementId: 'measurement-id', PollAttempt: 1, Status: 'finished', ProbeCount: 100, Converged: true },
+    { Message: 'Globalping measurement converged', MeasurementId: 'measurement-id', PollAttempt: 1, ProbeCount: 100 }
+  ])
 })
 
 test('uses a CONNECT tunnel when a SOCKS bridge URL is provided', async () => {
@@ -109,6 +115,7 @@ test('rejects incomplete Globalping measurements and bodies without userscript v
 test('reruns an unconverged purge job and waits longer before checking its new attempt', async () => {
   const Delays: number[] = []
   const RerunJobIds: number[] = []
+  const Progress: Array<{ Message: string, PollAttempt?: number, JobId?: number, RerunCount?: number }> = []
   const ReleaseValue: Release = {
     Repository: { Owner: 'acme', Name: 'userscript' },
     Title: 'Release',
@@ -141,10 +148,17 @@ test('reruns an unconverged purge job and waits longer before checking its new a
     { StatusCode: 200, Body: { status: 'finished', results: [...MatchingResults('KR', 10), ...MatchingResults('US', 10), ...MatchingResults('DE', 80)] } }
   ])
 
-  await WaitForPurge(Github, ReleaseValue, 'token-value', undefined, Request, async (DelayMs) => { Delays.push(DelayMs) })
+  await WaitForPurge(Github, ReleaseValue, 'token-value', undefined, Request, async (DelayMs) => { Delays.push(DelayMs) }, (Event) => Progress.push(Event))
 
   assert.deepEqual(RerunJobIds, [1])
   assert.deepEqual(Delays, [10_000, 5_000, 15_000])
+  assert.equal(Progress.filter((Event) => Event.Message === 'Purge job polled').length, 2)
+  assert.deepEqual(Progress.find((Event) => Event.Message === 'Purge job rerun requested after CDN did not converge'), {
+    Message: 'Purge job rerun requested after CDN did not converge', PollAttempt: 1, JobId: 1, RunAttempt: 1, RerunCount: 0
+  })
+  assert.deepEqual(Progress.at(-1), {
+    Message: 'Purge verification completed', PollAttempt: 2, JobId: 2, RunAttempt: 2, RerunCount: 1
+  })
 })
 
 test('rejects unsuccessful Globalping API responses', async () => {

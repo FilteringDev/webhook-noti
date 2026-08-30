@@ -105,19 +105,20 @@ export async function Deliver(
   const Notifier = Notifiers.get(Destination.Platform)
   if (Notifier === undefined) {
     Record('failed', 'Platform bot is disabled')
-    Logger.error({ message: 'Delivery failed: platform bot is disabled', ReleaseKey, DestinationId: Destination.Id, Platform: Destination.Platform })
+    Logger.error({ message: 'Delivery failed: platform bot is disabled', ReleaseKey, DestinationId: Destination.Id, Platform: Destination.Platform, Kind: Destination.Kind })
     return
   }
   try {
+    Logger.info({ message: 'Delivery send started', ReleaseKey, DestinationId: Destination.Id, Platform: Destination.Platform, Kind: Destination.Kind })
     await Retry(
       () => Notifier.Send(Destination, Message),
-      (Attempt, CaughtError) => Logger.warn({ message: 'Delivery attempt failed', ReleaseKey, DestinationId: Destination.Id, Platform: Destination.Platform, Attempt, Error: CaughtError })
+      (Attempt, CaughtError) => Logger.warn({ message: 'Delivery attempt failed', ReleaseKey, DestinationId: Destination.Id, Platform: Destination.Platform, Kind: Destination.Kind, Attempt, Error: CaughtError, IsTransient: IsTransientError(CaughtError), StatusCode: StatusCode(CaughtError) })
     )
     Record('sent')
-    Logger.info({ message: 'Delivery sent', ReleaseKey, DestinationId: Destination.Id, Platform: Destination.Platform })
+    Logger.info({ message: 'Delivery sent', ReleaseKey, DestinationId: Destination.Id, Platform: Destination.Platform, Kind: Destination.Kind })
   } catch (CaughtError) {
     Record('failed', CaughtError instanceof Error ? CaughtError.message : 'Unknown delivery error')
-    Logger.error({ message: 'Delivery failed after retries', ReleaseKey, DestinationId: Destination.Id, Platform: Destination.Platform, Error: CaughtError })
+    Logger.error({ message: 'Delivery failed after retries', ReleaseKey, DestinationId: Destination.Id, Platform: Destination.Platform, Kind: Destination.Kind, Error: CaughtError })
     if (IsPermanentDestinationError(CaughtError)) {
       Database.ForgetDestination(Destination)
       Logger.info({ message: 'Automatically removed unreachable destination', DestinationId: Destination.Id, Platform: Destination.Platform, ExternalId: Destination.ExternalId, Kind: Destination.Kind })

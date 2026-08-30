@@ -34,6 +34,13 @@ interface GlobalpingRequestOptions {
 
 type GlobalpingRequest = (Url: URL, Options: GlobalpingRequestOptions) => Promise<{ StatusCode: number, Body: unknown }>
 
+export interface PurgeProgress {
+  Message: string
+  [Key: string]: boolean | number | string | undefined
+}
+
+type PurgeProgressReporter = (Progress: PurgeProgress) => void
+
 function ConnectTunnel(ProxyUrl: string, Hostname: string, Port: number): Promise<Socket> {
   const Proxy = new URL(ProxyUrl)
   if (Proxy.protocol !== 'http:' || Proxy.hostname.length === 0 || Proxy.port.length === 0) {
@@ -127,7 +134,17 @@ function MeasurementFinished(Value: unknown): boolean {
 
 class CdnNotConvergedError extends Error {}
 
-export async function ConfirmCdn(Url: URL, ReleaseTag: string, ApiToken: string, ProxyUrl?: string, Request: GlobalpingRequest = SecureRequest): Promise<void> {
+function MeasurementStatus(Value: unknown): string | undefined {
+  if (typeof Value !== 'object' || Value === null || typeof (Value as { status?: unknown }).status !== 'string') return undefined
+  return (Value as { status: string }).status
+}
+
+function MeasurementProbeCount(Value: unknown): number {
+  if (typeof Value !== 'object' || Value === null || !Array.isArray((Value as { results?: unknown }).results)) return 0
+  return (Value as { results: unknown[] }).results.length
+}
+
+export async function ConfirmCdn(Url: URL, ReleaseTag: string, ApiToken: string, ProxyUrl?: string, Request: GlobalpingRequest = SecureRequest, OnProgress?: PurgeProgressReporter): Promise<void> {
   const ExpectedVersion = ReleaseVersion(ReleaseTag)
   const RequestPath = `${Url.pathname}${Url.search}`
   const CreateConnection = ProxyUrl === undefined ? undefined : (Options: { Hostname: string, Port: number }) => ConnectTunnel(ProxyUrl, Options.Hostname, Options.Port)
@@ -144,13 +161,27 @@ export async function ConfirmCdn(Url: URL, ReleaseTag: string, ApiToken: string,
       measurementOptions: { protocol: 'HTTPS', request: { method: 'GET', path: RequestPath } }
     })
   }))
+  OnProgress?.({ Message: 'Globalping measurement created', MeasurementId: Id, ExpectedVersion })
   const Deadline = Date.now() + PollTimeoutMs
+  let PollAttempt = 0
   while (Date.now() < Deadline) {
+    PollAttempt += 1
     const Measurement = await GlobalpingResponse(Request, new URL(`${GlobalpingApiUrl}/${Id}`), { ...(CreateConnection === undefined ? {} : { CreateConnection }), ExpectedAs: 'JSON', HttpHeaders: Headers })
-    if (HasConvergedProbes(Measurement, ExpectedVersion)) return
-    if (MeasurementFinished(Measurement)) throw new CdnNotConvergedError('Globalping measurement completed before CDN content converged')
+    const Converged = HasConvergedProbes(Measurement, ExpectedVersion)
+    const Status = MeasurementStatus(Measurement)
+    const ProbeCount = MeasurementProbeCount(Measurement)
+    OnProgress?.({ Message: 'Globalping measurement polled', MeasurementId: Id, PollAttempt, Status, ProbeCount, Converged })
+    if (Converged) {
+      OnProgress?.({ Message: 'Globalping measurement converged', MeasurementId: Id, PollAttempt, ProbeCount })
+      return
+    }
+    if (MeasurementFinished(Measurement)) {
+      OnProgress?.({ Message: 'Globalping measurement completed without convergence', MeasurementId: Id, PollAttempt, ProbeCount, Status })
+      throw new CdnNotConvergedError('Globalping measurement completed before CDN content converged')
+    }
     await Wait(PollIntervalMs)
   }
+  OnProgress?.({ Message: 'Globalping measurement timed out', MeasurementId: Id, PollAttempt, TimeoutMs: PollTimeoutMs })
   throw new Error(`Timed out waiting for Globalping measurement ${Id}`)
 }
 
@@ -160,37 +191,56 @@ function Wait(Delay: number): Promise<void> {
   return new Promise((Resolve) => setTimeout(Resolve, Delay))
 }
 
-export async function WaitForPurge(Github: GithubClient, ReleaseValue: Release, GlobalpingApiToken: string, ProxyUrl?: string, Request: GlobalpingRequest = SecureRequest, Delay: (DelayMs: number) => Promise<void> = Wait): Promise<void> {
+export async function WaitForPurge(Github: GithubClient, ReleaseValue: Release, GlobalpingApiToken: string, ProxyUrl?: string, Request: GlobalpingRequest = SecureRequest, Delay: (DelayMs: number) => Promise<void> = Wait, OnProgress?: PurgeProgressReporter): Promise<void> {
   const CommitSha = await Github.ResolveCommit(ReleaseValue.Repository, ReleaseValue.TargetCommitish)
   const Url = SubscriptionUrlFromPackageJson(await Github.PackageJson(ReleaseValue.Repository, CommitSha))
-  if (Url === null) return
+  if (Url === null) {
+    OnProgress?.({ Message: 'Purge verification skipped', Reason: 'Subscription URL was not configured' })
+    return
+  }
 
   const Deadline = Date.now() + PollTimeoutMs
   const ProcessedAttempts = new Set<string>()
   let RerunCount = 0
+  let PollAttempt = 0
   while (Date.now() < Deadline) {
+    PollAttempt += 1
     const Jobs = await Github.PurgeJobs(ReleaseValue.Repository, CommitSha)
     const Job = Jobs.filter((Candidate) => Candidate.Name === PurgeJobName).sort((Left, Right) => Right.RunAttempt - Left.RunAttempt || Right.Id - Left.Id)[0]
+    OnProgress?.({
+      Message: Job === undefined ? 'Purge job not found' : 'Purge job polled',
+      PollAttempt,
+      JobCount: Jobs.length,
+      RerunCount,
+      CommitSha,
+      ...(Job === undefined ? {} : { JobId: Job.Id, RunAttempt: Job.RunAttempt, Status: Job.Status, Conclusion: Job.Conclusion ?? undefined })
+    })
     if (Job !== undefined) {
       const Attempt = `${Job.RunAttempt}:${Job.Id}`
       if (Job.Conclusion === 'success' && !ProcessedAttempts.has(Attempt)) {
         ProcessedAttempts.add(Attempt)
-        await Delay(RerunCount === 0 ? InitialPropagationDelayMs : RerunCount * InitialPropagationDelayMs + PollIntervalMs)
+        const PropagationDelayMs = RerunCount === 0 ? InitialPropagationDelayMs : RerunCount * InitialPropagationDelayMs + PollIntervalMs
+        OnProgress?.({ Message: 'Purge job succeeded; waiting for CDN propagation', PollAttempt, JobId: Job.Id, RunAttempt: Job.RunAttempt, PropagationDelayMs, RerunCount })
+        await Delay(PropagationDelayMs)
         try {
-          await ConfirmCdn(Url, ReleaseValue.Tag, GlobalpingApiToken, ProxyUrl, Request)
+          await ConfirmCdn(Url, ReleaseValue.Tag, GlobalpingApiToken, ProxyUrl, Request, OnProgress)
+          OnProgress?.({ Message: 'Purge verification completed', PollAttempt, JobId: Job.Id, RunAttempt: Job.RunAttempt, RerunCount })
           return
         } catch (CaughtError) {
           if (!(CaughtError instanceof CdnNotConvergedError)) throw CaughtError
+          OnProgress?.({ Message: 'Purge job rerun requested after CDN did not converge', PollAttempt, JobId: Job.Id, RunAttempt: Job.RunAttempt, RerunCount })
           await Github.RerunJob(ReleaseValue.Repository, Job.Id)
           RerunCount += 1
         }
       } else if (Job.Status === 'completed' && !ProcessedAttempts.has(Attempt)) {
         ProcessedAttempts.add(Attempt)
+        OnProgress?.({ Message: 'Purge job rerun requested after unsuccessful completion', PollAttempt, JobId: Job.Id, RunAttempt: Job.RunAttempt, Conclusion: Job.Conclusion ?? undefined, RerunCount })
         await Github.RerunJob(ReleaseValue.Repository, Job.Id)
         RerunCount += 1
       }
     }
     await Delay(PollIntervalMs)
   }
+  OnProgress?.({ Message: 'Purge verification timed out', PollAttempt, CommitSha, RerunCount, TimeoutMs: PollTimeoutMs })
   throw new Error(`Timed out waiting for ${PurgeJobName} at ${CommitSha}`)
 }

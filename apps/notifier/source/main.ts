@@ -52,11 +52,26 @@ async function Bootstrap(): Promise<void> {
       const Repository = RepositorySlug(ReleaseValue.Repository)
       Logger.info({ message: 'Release processing started', ReleaseKey, Repository })
       try {
-        await WaitForPurge(Github, ReleaseValue, Config.GlobalpingApiToken, SocksBridge?.Url)
+        Logger.info({ message: 'Purge verification started', ReleaseKey, Repository })
+        await WaitForPurge(
+          Github,
+          ReleaseValue,
+          Config.GlobalpingApiToken,
+          SocksBridge?.Url,
+          undefined,
+          undefined,
+          (Progress) => Logger.info({ message: Progress.Message, ReleaseKey, Repository, ...Progress })
+        )
+        Logger.info({ message: 'Release message formatting started', ReleaseKey, Repository })
         const Content = await SafeReleaseMessage(ReleaseValue, ResolveReference)
+        Logger.info({ message: 'Release message formatted', ReleaseKey, Repository, MessageLength: Content.length })
+        Logger.info({ message: 'Delivery target selection started', ReleaseKey, Repository, IsPrerelease: ReleaseValue.IsPrerelease })
         const Destinations = Database.DestinationsFor(ReleaseValue.Repository, ReleaseValue.IsPrerelease)
         Logger.info({ message: 'Delivery targets selected', ReleaseKey, Repository, DestinationCount: Destinations.length })
-        await Promise.all(Destinations.map(async (Destination) => Deliver(Database, Notifiers, Destination, ReleaseKey, Content)))
+        await Promise.all(Destinations.map(async (Destination) => {
+          Logger.info({ message: 'Delivery dispatch started', ReleaseKey, Repository, DestinationId: Destination.Id, Platform: Destination.Platform, Kind: Destination.Kind })
+          await Deliver(Database, Notifiers, Destination, ReleaseKey, Content)
+        }))
         Logger.success({ message: 'Release processing completed', ReleaseKey, Repository, DestinationCount: Destinations.length })
       } catch (CaughtError) {
         Logger.error({ message: 'Release processing failed', ReleaseKey, Repository, Error: CaughtError })
