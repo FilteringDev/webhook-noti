@@ -128,7 +128,7 @@ test('rejects incomplete Globalping measurements and bodies without userscript v
 test('reruns an unconverged purge job and waits longer before checking its new attempt', async () => {
   const Delays: number[] = []
   const RerunJobIds: number[] = []
-  const Progress: Array<{ Message: string, PollAttempt?: number, JobId?: number, RerunCount?: number }> = []
+  const Progress: Array<{ Message: string, MeasurementId?: string, PollAttempt?: number, JobId?: number, RerunCount?: number }> = []
   const ReleaseValue: Release = {
     Repository: { Owner: 'acme', Name: 'userscript' },
     Title: 'Release',
@@ -166,6 +166,8 @@ test('reruns an unconverged purge job and waits longer before checking its new a
   assert.deepEqual(RerunJobIds, [1])
   assert.deepEqual(Delays, [120_000, 5_000, 210_000])
   assert.equal(Progress.filter((Event) => Event.Message === 'Purge job polled').length, 2)
+  assert.equal(Progress.find((Event) => Event.Message === 'Globalping measurement completed without convergence')?.MeasurementId, 'first-measurement')
+  assert.equal(Progress.find((Event) => Event.Message === 'Globalping measurement converged')?.MeasurementId, 'second-measurement')
   assert.deepEqual(Progress.find((Event) => Event.Message === 'Purge job rerun requested after CDN did not converge'), {
     Message: 'Purge job rerun requested after CDN did not converge', PollAttempt: 1, JobId: 1, RunAttempt: 1, RerunCount: 0, NextRerunCount: 1
   })

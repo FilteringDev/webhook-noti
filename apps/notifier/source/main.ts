@@ -10,11 +10,15 @@ import { GetEnvironment } from './env.js'
 import { GithubClient } from './github.js'
 import { InstallationRegistry } from './installations.js'
 import { CreateReleasePoller } from './poller.js'
-import { WaitForPurge } from './purge.js'
+import { WaitForPurge, type PurgeProgress } from './purge.js'
 import { StartSocksBridge } from './socks-bridge.js'
 import { CreateTelegram } from './telegram.js'
 
 const Logger = consola.withTag('notifier')
+
+function PurgeProgressMessage(Progress: PurgeProgress): string {
+  return typeof Progress.MeasurementId === 'string' ? `${Progress.Message} measurement=${Progress.MeasurementId}` : Progress.Message
+}
 
 async function Bootstrap(): Promise<void> {
   try {
@@ -60,7 +64,7 @@ async function Bootstrap(): Promise<void> {
           SocksBridge?.Url,
           undefined,
           undefined,
-          (Progress) => Logger.info({ message: Progress.Message, ReleaseKey, Repository, ...Progress })
+          (Progress) => Logger.info({ message: PurgeProgressMessage(Progress), ReleaseKey, Repository, ...Progress })
         )
         Logger.info({ message: 'Release message formatting started', ReleaseKey, Repository })
         const Content = await SafeReleaseMessage(ReleaseValue, ResolveReference)
