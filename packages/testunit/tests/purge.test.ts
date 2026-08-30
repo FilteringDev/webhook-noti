@@ -5,12 +5,13 @@ import { ConfirmCdn, SubscriptionUrlFromPackageJson, WaitForPurge } from '../../
 
 type GlobalpingRequest = Exclude<Parameters<typeof ConfirmCdn>[4], undefined>
 type GlobalpingRequestOptions = Parameters<GlobalpingRequest>[1]
+type GlobalpingResponse = Awaited<ReturnType<GlobalpingRequest>>
 
 function MatchingResults(Country: 'KR' | 'US' | 'DE' = 'DE', Count = 1, Version = '1.2.3'): unknown[] {
   return Array.from({ length: Count }, () => ({ probe: { country: Country }, result: { statusCode: 200, body: `// @version ${Version}\n` } }))
 }
 
-function RequestFrom(Responses: Array<{ StatusCode: number, Body: unknown }>): GlobalpingRequest {
+function RequestFrom(Responses: GlobalpingResponse[]): GlobalpingRequest {
   return (Url, Options) => {
     void Url
     void Options
@@ -38,8 +39,18 @@ test('confirms a jsdelivr URL through 100 authenticated matching regional measur
   const Progress: Array<{ Message: string, MeasurementId?: string, PollAttempt?: number, ProbeCount?: number }> = []
   const Request: GlobalpingRequest = (Url, Options) => {
     Requests.push({ Url, Options })
-    if (Requests.length === 1) return Promise.resolve({ StatusCode: 202, Body: { id: 'measurement-id' } })
-    return Promise.resolve({ StatusCode: 200, Body: { status: 'finished', results: [...MatchingResults('KR', 10), ...MatchingResults('US', 10), ...MatchingResults('DE', 80)] } })
+    if (Requests.length === 1) {
+      return Promise.resolve({
+        StatusCode: 202,
+        Headers: { location: '/v1/measurements/measurement-id', 'x-ratelimit-remaining': '499', 'x-ratelimit-reset': '3600', 'x-request-cost': '100' },
+        Body: { id: 'measurement-id' }
+      })
+    }
+    return Promise.resolve({
+      StatusCode: 200,
+      Headers: { 'X-RateLimit-Remaining': '498' },
+      Body: { status: 'finished', results: [...MatchingResults('KR', 10), ...MatchingResults('US', 10), ...MatchingResults('DE', 80)] }
+    })
   }
 
   await ConfirmCdn(new URL('https://cdn.jsdelivr.net/npm/acme@latest/dist/script.user.js?raw=1'), 'v1.2.3', 'token-value', undefined, Request, (Event) => Progress.push(Event))
@@ -55,9 +66,11 @@ test('confirms a jsdelivr URL through 100 authenticated matching regional measur
   })
   assert.equal(Requests[1]?.Url.href, 'https://api.globalping.io/v1/measurements/measurement-id')
   assert.deepEqual(Progress, [
-    { Message: 'Globalping measurement created', MeasurementId: 'measurement-id', ExpectedVersion: '1.2.3' },
-    { Message: 'Globalping measurement polled', MeasurementId: 'measurement-id', PollAttempt: 1, Status: 'finished', ProbeCount: 100, Converged: true },
-    { Message: 'Globalping measurement converged', MeasurementId: 'measurement-id', PollAttempt: 1, ProbeCount: 100 }
+    { Message: 'Globalping verification started', ExpectedVersion: '1.2.3', Target: 'cdn.jsdelivr.net', RequestPath: '/npm/acme@latest/dist/script.user.js?raw=1', ProxyEnabled: false },
+    { Message: 'Globalping measurement creation started', ExpectedVersion: '1.2.3', Target: 'cdn.jsdelivr.net', RequestPath: '/npm/acme@latest/dist/script.user.js?raw=1', ProxyEnabled: false },
+    { Message: 'Globalping measurement created', MeasurementId: 'measurement-id', ExpectedVersion: '1.2.3', Target: 'cdn.jsdelivr.net', RequestPath: '/npm/acme@latest/dist/script.user.js?raw=1', ProxyEnabled: false, GlobalpingLocation: '/v1/measurements/measurement-id', GlobalpingRateLimitRemaining: '499', GlobalpingRateLimitReset: '3600', GlobalpingRequestCost: '100' },
+    { Message: 'Globalping measurement polled', MeasurementId: 'measurement-id', PollAttempt: 1, Status: 'finished', ProbeCount: 100, Converged: true, ExpectedVersion: '1.2.3', HttpFailureCount: 0, InvalidProbeCount: 0, KoreanProbeCount: 10, MatchingVersionCount: 100, MissingVersionCount: 0, MismatchedVersionCount: 0, UnitedStatesProbeCount: 10, GlobalpingRateLimitRemaining: '498' },
+    { Message: 'Globalping measurement converged', MeasurementId: 'measurement-id', PollAttempt: 1, ProbeCount: 100, Converged: true, ExpectedVersion: '1.2.3', HttpFailureCount: 0, InvalidProbeCount: 0, KoreanProbeCount: 10, MatchingVersionCount: 100, MissingVersionCount: 0, MismatchedVersionCount: 0, UnitedStatesProbeCount: 10 }
   ])
 })
 
@@ -154,7 +167,13 @@ test('reruns an unconverged purge job and waits longer before checking its new a
   assert.deepEqual(Delays, [120_000, 5_000, 210_000])
   assert.equal(Progress.filter((Event) => Event.Message === 'Purge job polled').length, 2)
   assert.deepEqual(Progress.find((Event) => Event.Message === 'Purge job rerun requested after CDN did not converge'), {
-    Message: 'Purge job rerun requested after CDN did not converge', PollAttempt: 1, JobId: 1, RunAttempt: 1, RerunCount: 0
+    Message: 'Purge job rerun requested after CDN did not converge', PollAttempt: 1, JobId: 1, RunAttempt: 1, RerunCount: 0, NextRerunCount: 1
+  })
+  assert.deepEqual(Progress.find((Event) => Event.Message === 'CDN propagation wait completed'), {
+    Message: 'CDN propagation wait completed', PollAttempt: 1, JobId: 1, RunAttempt: 1, PropagationDelayMs: 120_000, RerunCount: 0
+  })
+  assert.deepEqual(Progress.find((Event) => Event.Message === 'CDN verification started'), {
+    Message: 'CDN verification started', PollAttempt: 1, JobId: 1, RunAttempt: 1, RerunCount: 0
   })
   assert.deepEqual(Progress.at(-1), {
     Message: 'Purge verification completed', PollAttempt: 2, JobId: 2, RunAttempt: 2, RerunCount: 1
@@ -162,8 +181,19 @@ test('reruns an unconverged purge job and waits longer before checking its new a
 })
 
 test('rejects unsuccessful Globalping API responses', async () => {
+  const Progress: Array<{ Message: string }> = []
   await assert.rejects(
-    ConfirmCdn(new URL('https://cdn.jsdelivr.net/npm/acme@latest/script.user.js'), '1.2.3', 'token-value', undefined, RequestFrom([{ StatusCode: 401, Body: null }])),
+    ConfirmCdn(new URL('https://cdn.jsdelivr.net/npm/acme@latest/script.user.js'), '1.2.3', 'token-value', undefined, RequestFrom([{ StatusCode: 401, Headers: { 'x-ratelimit-remaining': '0' }, Body: null }]), (Event) => Progress.push(Event)),
     /Globalping API returned HTTP 401/
   )
+  assert.deepEqual(Progress.at(-1), {
+    Message: 'Globalping measurement creation failed',
+    ExpectedVersion: '1.2.3',
+    Target: 'cdn.jsdelivr.net',
+    RequestPath: '/npm/acme@latest/script.user.js',
+    ProxyEnabled: false,
+    ErrorMessage: 'Globalping API returned HTTP 401',
+    StatusCode: 401,
+    GlobalpingRateLimitRemaining: '0'
+  })
 })

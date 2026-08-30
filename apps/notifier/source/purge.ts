@@ -31,7 +31,21 @@ interface GlobalpingRequestOptions {
   Payload?: string
 }
 
-type GlobalpingRequest = (Url: URL, Options: GlobalpingRequestOptions) => Promise<{ StatusCode: number, Body: unknown }>
+interface GlobalpingResponseValue {
+  Body: unknown
+  Headers?: Record<string, string | string[] | undefined>
+  StatusCode: number
+}
+
+interface GlobalpingResponseBody {
+  Body: unknown
+  Headers?: Record<string, string | string[] | undefined>
+  StatusCode: number
+}
+
+type GlobalpingRequest = (Url: URL, Options: GlobalpingRequestOptions) => Promise<GlobalpingResponseValue>
+
+type PurgeProgressFields = Record<string, boolean | number | string | undefined>
 
 export interface PurgeProgress {
   Message: string
@@ -68,7 +82,7 @@ function ConnectTunnel(ProxyUrl: string, Hostname: string, Port: number): Promis
   })
 }
 
-async function SecureRequest(Url: URL, Options: GlobalpingRequestOptions): Promise<{ StatusCode: number, Body: unknown }> {
+async function SecureRequest(Url: URL, Options: GlobalpingRequestOptions): Promise<GlobalpingResponseValue> {
   const Client = new SecureReq()
   try {
     return await Client.Request(Url, Options)
@@ -77,10 +91,55 @@ async function SecureRequest(Url: URL, Options: GlobalpingRequestOptions): Promi
   }
 }
 
-async function GlobalpingResponse(Request: GlobalpingRequest, Url: URL, Options: GlobalpingRequestOptions): Promise<unknown> {
+async function GlobalpingResponse(Request: GlobalpingRequest, Url: URL, Options: GlobalpingRequestOptions): Promise<GlobalpingResponseBody> {
   const Response = await Request(Url, Options)
-  if (Response.StatusCode < 200 || Response.StatusCode >= 300) throw new Error(`Globalping API returned HTTP ${Response.StatusCode}`)
-  return Response.Body
+  if (Response.StatusCode < 200 || Response.StatusCode >= 300) throw Object.assign(new Error(`Globalping API returned HTTP ${Response.StatusCode}`), { Headers: Response.Headers, StatusCode: Response.StatusCode })
+  return Response
+}
+
+function HeaderValue(Headers: Record<string, string | string[] | undefined> | undefined, Name: string): string | undefined {
+  if (Headers === undefined) return undefined
+  const HeaderName = Name.toLowerCase()
+  for (const [Key, Value] of Object.entries(Headers)) {
+    if (Key.toLowerCase() !== HeaderName) continue
+    if (typeof Value === 'string') return Value
+    if (Array.isArray(Value)) return Value.filter((Item) => typeof Item === 'string').join(', ')
+  }
+  return undefined
+}
+
+function GlobalpingHeaderProgress(Headers: Record<string, string | string[] | undefined> | undefined): PurgeProgressFields {
+  return {
+    ...(HeaderValue(Headers, 'Location') === undefined ? {} : { GlobalpingLocation: HeaderValue(Headers, 'Location') }),
+    ...(HeaderValue(Headers, 'X-RateLimit-Limit') === undefined ? {} : { GlobalpingRateLimitLimit: HeaderValue(Headers, 'X-RateLimit-Limit') }),
+    ...(HeaderValue(Headers, 'X-RateLimit-Consumed') === undefined ? {} : { GlobalpingRateLimitConsumed: HeaderValue(Headers, 'X-RateLimit-Consumed') }),
+    ...(HeaderValue(Headers, 'X-RateLimit-Remaining') === undefined ? {} : { GlobalpingRateLimitRemaining: HeaderValue(Headers, 'X-RateLimit-Remaining') }),
+    ...(HeaderValue(Headers, 'X-RateLimit-Reset') === undefined ? {} : { GlobalpingRateLimitReset: HeaderValue(Headers, 'X-RateLimit-Reset') }),
+    ...(HeaderValue(Headers, 'X-Credits-Consumed') === undefined ? {} : { GlobalpingCreditsConsumed: HeaderValue(Headers, 'X-Credits-Consumed') }),
+    ...(HeaderValue(Headers, 'X-Credits-Remaining') === undefined ? {} : { GlobalpingCreditsRemaining: HeaderValue(Headers, 'X-Credits-Remaining') }),
+    ...(HeaderValue(Headers, 'X-Request-Cost') === undefined ? {} : { GlobalpingRequestCost: HeaderValue(Headers, 'X-Request-Cost') })
+  }
+}
+
+function ObjectValue(Value: unknown): Record<string, unknown> | undefined {
+  return Value !== null && typeof Value === 'object' ? Value as Record<string, unknown> : undefined
+}
+
+function HeaderRecord(Value: unknown): Record<string, string | string[] | undefined> | undefined {
+  const RecordValue = ObjectValue(Value)
+  if (RecordValue === undefined) return undefined
+  return Object.fromEntries(Object.entries(RecordValue).filter(([, ValueItem]) => typeof ValueItem === 'string' || ValueItem === undefined || (Array.isArray(ValueItem) && ValueItem.every((Item) => typeof Item === 'string')))) as Record<string, string | string[] | undefined>
+}
+
+function ErrorProgress(CaughtError: unknown): PurgeProgressFields {
+  const ErrorValue = ObjectValue(CaughtError)
+  const StatusCode = ErrorValue?.StatusCode ?? ErrorValue?.statusCode ?? ErrorValue?.status
+  const Headers = HeaderRecord(ErrorValue?.Headers ?? ErrorValue?.headers)
+  return {
+    ErrorMessage: CaughtError instanceof Error ? CaughtError.message : 'Unknown Globalping API error',
+    ...(typeof StatusCode === 'number' ? { StatusCode } : {}),
+    ...GlobalpingHeaderProgress(Headers)
+  }
 }
 
 /* oxlint-disable crackle/pascal-case */
@@ -106,23 +165,62 @@ function ReleaseVersion(Tag: string): string {
   return Version
 }
 
-function HasConvergedProbes(Value: unknown, ExpectedVersion: string): boolean {
-  if (typeof Value !== 'object' || Value === null || !Array.isArray((Value as { results?: unknown }).results)) return false
+interface ProbeSummary {
+  Converged: boolean
+  ExpectedVersion: string
+  HttpFailureCount: number
+  InvalidProbeCount: number
+  KoreanProbeCount: number
+  MatchingVersionCount: number
+  MissingVersionCount: number
+  MismatchedVersionCount: number
+  ProbeCount: number
+  UnitedStatesProbeCount: number
+}
+
+function ProbeSummaryFrom(Value: unknown, ExpectedVersion: string): ProbeSummary {
+  if (typeof Value !== 'object' || Value === null || !Array.isArray((Value as { results?: unknown }).results)) {
+    return { Converged: false, ExpectedVersion, HttpFailureCount: 0, InvalidProbeCount: 0, KoreanProbeCount: 0, MatchingVersionCount: 0, MissingVersionCount: 0, MismatchedVersionCount: 0, ProbeCount: 0, UnitedStatesProbeCount: 0 }
+  }
   const Results = (Value as { results: unknown[] }).results
-  if (Results.length !== RequestedProbeCount) return false
   let KoreanProbeCount = 0
   let UnitedStatesProbeCount = 0
-  return Results.every((Result) => {
-    if (typeof Result !== 'object' || Result === null) return false
+  let MatchingVersionCount = 0
+  let MismatchedVersionCount = 0
+  let HttpFailureCount = 0
+  let MissingVersionCount = 0
+  let InvalidProbeCount = 0
+  for (const Result of Results) {
+    if (typeof Result !== 'object' || Result === null) {
+      InvalidProbeCount += 1
+      continue
+    }
     const HttpResult = (Result as { result?: unknown }).result
     const Country = (Result as { probe?: { country?: unknown } }).probe?.country
-    if (typeof HttpResult !== 'object' || HttpResult === null || typeof (HttpResult as { statusCode?: unknown }).statusCode !== 'number' || typeof (HttpResult as { body?: unknown }).body !== 'string') return false
+    if (typeof HttpResult !== 'object' || HttpResult === null || typeof (HttpResult as { statusCode?: unknown }).statusCode !== 'number' || typeof (HttpResult as { body?: unknown }).body !== 'string') {
+      InvalidProbeCount += 1
+      continue
+    }
     const StatusCode = (HttpResult as { statusCode: number }).statusCode
-    if (StatusCode < 200 || StatusCode >= 300 || UserscriptVersion((HttpResult as { body: string }).body) !== ExpectedVersion) return false
+    if (StatusCode < 200 || StatusCode >= 300) {
+      HttpFailureCount += 1
+      continue
+    }
+    const Version = UserscriptVersion((HttpResult as { body: string }).body)
+    if (Version === null) {
+      MissingVersionCount += 1
+      continue
+    }
+    if (Version !== ExpectedVersion) {
+      MismatchedVersionCount += 1
+      continue
+    }
+    MatchingVersionCount += 1
     if (Country === 'KR') KoreanProbeCount += 1
     if (Country === 'US') UnitedStatesProbeCount += 1
-    return true
-  }) && KoreanProbeCount >= 10 && UnitedStatesProbeCount >= 10
+  }
+  const Converged = Results.length === RequestedProbeCount && InvalidProbeCount === 0 && HttpFailureCount === 0 && MissingVersionCount === 0 && MismatchedVersionCount === 0 && KoreanProbeCount >= 10 && UnitedStatesProbeCount >= 10
+  return { Converged, ExpectedVersion, HttpFailureCount, InvalidProbeCount, KoreanProbeCount, MatchingVersionCount, MissingVersionCount, MismatchedVersionCount, ProbeCount: Results.length, UnitedStatesProbeCount }
 }
 
 function MeasurementFinished(Value: unknown): boolean {
@@ -138,44 +236,55 @@ function MeasurementStatus(Value: unknown): string | undefined {
   return (Value as { status: string }).status
 }
 
-function MeasurementProbeCount(Value: unknown): number {
-  if (typeof Value !== 'object' || Value === null || !Array.isArray((Value as { results?: unknown }).results)) return 0
-  return (Value as { results: unknown[] }).results.length
-}
-
 export async function ConfirmCdn(Url: URL, ReleaseTag: string, ApiToken: string, ProxyUrl?: string, Request: GlobalpingRequest = SecureRequest, OnProgress?: PurgeProgressReporter): Promise<void> {
   const ExpectedVersion = ReleaseVersion(ReleaseTag)
   const RequestPath = `${Url.pathname}${Url.search}`
   const CreateConnection = ProxyUrl === undefined ? undefined : (Options: { Hostname: string, Port: number }) => ConnectTunnel(ProxyUrl, Options.Hostname, Options.Port)
   const Headers = { authorization: `Bearer ${ApiToken}`, 'content-type': 'application/json' }
-  const Id = MeasurementId(await GlobalpingResponse(Request, new URL(GlobalpingApiUrl), {
-    ...(CreateConnection === undefined ? {} : { CreateConnection }),
-    ExpectedAs: 'JSON',
-    HttpHeaders: Headers,
-    HttpMethod: 'POST',
-    Payload: JSON.stringify({
-      type: 'http',
-      target: Url.hostname,
-      locations: [{ country: 'KR', limit: 10 }, { country: 'US', limit: 10 }, { magic: 'World', limit: 80 }],
-      measurementOptions: { protocol: 'HTTPS', request: { method: 'GET', path: RequestPath } }
+  const Target = Url.hostname
+  const ProxyEnabled = ProxyUrl !== undefined
+  OnProgress?.({ Message: 'Globalping verification started', ExpectedVersion, Target, RequestPath, ProxyEnabled })
+  OnProgress?.({ Message: 'Globalping measurement creation started', ExpectedVersion, Target, RequestPath, ProxyEnabled })
+  let Creation: GlobalpingResponseBody
+  try {
+    Creation = await GlobalpingResponse(Request, new URL(GlobalpingApiUrl), {
+      ...(CreateConnection === undefined ? {} : { CreateConnection }),
+      ExpectedAs: 'JSON',
+      HttpHeaders: Headers,
+      HttpMethod: 'POST',
+      Payload: JSON.stringify({
+        type: 'http',
+        target: Url.hostname,
+        locations: [{ country: 'KR', limit: 10 }, { country: 'US', limit: 10 }, { magic: 'World', limit: 80 }],
+        measurementOptions: { protocol: 'HTTPS', request: { method: 'GET', path: RequestPath } }
+      })
     })
-  }))
-  OnProgress?.({ Message: 'Globalping measurement created', MeasurementId: Id, ExpectedVersion })
+  } catch (CaughtError) {
+    OnProgress?.({ Message: 'Globalping measurement creation failed', ExpectedVersion, Target, RequestPath, ProxyEnabled, ...ErrorProgress(CaughtError) })
+    throw CaughtError
+  }
+  const Id = MeasurementId(Creation.Body)
+  OnProgress?.({ Message: 'Globalping measurement created', MeasurementId: Id, ExpectedVersion, Target, RequestPath, ProxyEnabled, ...GlobalpingHeaderProgress(Creation.Headers) })
   const Deadline = Date.now() + PollTimeoutMs
   let PollAttempt = 0
   while (Date.now() < Deadline) {
     PollAttempt += 1
-    const Measurement = await GlobalpingResponse(Request, new URL(`${GlobalpingApiUrl}/${Id}`), { ...(CreateConnection === undefined ? {} : { CreateConnection }), ExpectedAs: 'JSON', HttpHeaders: Headers })
-    const Converged = HasConvergedProbes(Measurement, ExpectedVersion)
-    const Status = MeasurementStatus(Measurement)
-    const ProbeCount = MeasurementProbeCount(Measurement)
-    OnProgress?.({ Message: 'Globalping measurement polled', MeasurementId: Id, PollAttempt, Status, ProbeCount, Converged })
-    if (Converged) {
-      OnProgress?.({ Message: 'Globalping measurement converged', MeasurementId: Id, PollAttempt, ProbeCount })
+    let Measurement: GlobalpingResponseBody
+    try {
+      Measurement = await GlobalpingResponse(Request, new URL(`${GlobalpingApiUrl}/${Id}`), { ...(CreateConnection === undefined ? {} : { CreateConnection }), ExpectedAs: 'JSON', HttpHeaders: Headers })
+    } catch (CaughtError) {
+      OnProgress?.({ Message: 'Globalping measurement poll failed', MeasurementId: Id, PollAttempt, ...ErrorProgress(CaughtError) })
+      throw CaughtError
+    }
+    const Summary = ProbeSummaryFrom(Measurement.Body, ExpectedVersion)
+    const Status = MeasurementStatus(Measurement.Body)
+    OnProgress?.({ Message: 'Globalping measurement polled', MeasurementId: Id, PollAttempt, Status, ...Summary, ...GlobalpingHeaderProgress(Measurement.Headers) })
+    if (Summary.Converged) {
+      OnProgress?.({ Message: 'Globalping measurement converged', MeasurementId: Id, PollAttempt, ...Summary })
       return
     }
-    if (MeasurementFinished(Measurement)) {
-      OnProgress?.({ Message: 'Globalping measurement completed without convergence', MeasurementId: Id, PollAttempt, ProbeCount, Status })
+    if (MeasurementFinished(Measurement.Body)) {
+      OnProgress?.({ Message: 'Globalping measurement completed without convergence', MeasurementId: Id, PollAttempt, Status, ...Summary })
       throw new CdnNotConvergedError('Globalping measurement completed before CDN content converged')
     }
     await Wait(PollIntervalMs)
@@ -221,13 +330,15 @@ export async function WaitForPurge(Github: GithubClient, ReleaseValue: Release, 
         const PropagationDelayMs = RerunCount * 90_000 + 120_000
         OnProgress?.({ Message: 'Purge job succeeded; waiting for CDN propagation', PollAttempt, JobId: Job.Id, RunAttempt: Job.RunAttempt, PropagationDelayMs, RerunCount })
         await Delay(PropagationDelayMs)
+        OnProgress?.({ Message: 'CDN propagation wait completed', PollAttempt, JobId: Job.Id, RunAttempt: Job.RunAttempt, PropagationDelayMs, RerunCount })
+        OnProgress?.({ Message: 'CDN verification started', PollAttempt, JobId: Job.Id, RunAttempt: Job.RunAttempt, RerunCount })
         try {
           await ConfirmCdn(Url, ReleaseValue.Tag, GlobalpingApiToken, ProxyUrl, Request, OnProgress)
           OnProgress?.({ Message: 'Purge verification completed', PollAttempt, JobId: Job.Id, RunAttempt: Job.RunAttempt, RerunCount })
           return
         } catch (CaughtError) {
           if (!(CaughtError instanceof CdnNotConvergedError)) throw CaughtError
-          OnProgress?.({ Message: 'Purge job rerun requested after CDN did not converge', PollAttempt, JobId: Job.Id, RunAttempt: Job.RunAttempt, RerunCount })
+          OnProgress?.({ Message: 'Purge job rerun requested after CDN did not converge', PollAttempt, JobId: Job.Id, RunAttempt: Job.RunAttempt, RerunCount, NextRerunCount: RerunCount + 1 })
           await Github.RerunJob(ReleaseValue.Repository, Job.Id)
           RerunCount += 1
         }
