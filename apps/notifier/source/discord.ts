@@ -5,7 +5,7 @@ import type { Dispatcher } from 'undici'
 import { RunGuarded } from './async-guard.js'
 import type { NotifierDatabase } from './database.js'
 import type { PlatformNotifier } from './delivery.js'
-import { ReplyWithFailure } from './discord-response.js'
+import { DiscordInteractionErrorDetails, ReplyWithFailure } from './discord-response.js'
 import { ForgetConfirmation, type ForgetScope } from './forget.js'
 import { RepositorySelector, type RepositoryAction, type SelectionPage } from './selection.js'
 
@@ -56,8 +56,8 @@ export function CreateDiscord(Token: string, Database: NotifierDatabase, ListRep
   })
   DiscordClient.on('interactionCreate', (Interaction) => {
     RunGuarded(() => HandleInteraction(Interaction), (CaughtError) => {
-      Logger.error({ message: 'Discord interaction handler failed', Error: CaughtError })
-      RunGuarded(() => ReplyInteractionFailure(Interaction), (RecoveryError) => Logger.error({ message: 'Discord interaction failure response failed', Error: RecoveryError }))
+      Logger.error({ message: 'Discord interaction handler failed', ...DiscordInteractionErrorDetails(CaughtError) })
+      RunGuarded(() => ReplyInteractionFailure(Interaction), (RecoveryError) => Logger.error({ message: 'Discord interaction failure response failed', ...DiscordInteractionErrorDetails(RecoveryError) }))
     })
   })
   async function ReplyInteractionFailure(Interaction: Interaction): Promise<void> {
