@@ -129,7 +129,8 @@ export function CreateDiscord(Token: string, Database: NotifierDatabase, ListRep
       const Activated = Database.SaveDestination({ ExternalId: Selected.ExternalId, GuildId: Interaction.guildId, IncludePrerelease: Selected.IncludePrerelease, Kind, Language, OwnerId: Interaction.user.id, Platform: 'discord', Repository: Selected.Repository, TopicId: Selected.TopicId })
       if (Activated !== undefined) {
         const Summary = Database.ActiveDestinationSummary()
-        Logger.info({ message: 'Active destination added', Destination: Activated, ActiveDestinationCount: Activated === 'discord-server' ? Summary.DiscordServers : Summary.DiscordUsers })
+        const ActiveDestinationCount = Activated === 'discord-server' ? Summary.DiscordServers : Summary.DiscordUsers
+        Logger.info({ message: `Active destination added: ${Activated}, total=${ActiveDestinationCount}` })
       }
       await Interaction.update({ content: Message(Language, Selected.Action === 'dm-enable' ? 'dmEnabled' : 'subscribed'), components: [] })
       return

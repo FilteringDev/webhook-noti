@@ -187,7 +187,8 @@ export function CreateTelegram(Token: string, Database: NotifierDatabase, ListRe
       const Activated = Database.SaveDestination({ ExternalId: Selected.ExternalId, GuildId: null, IncludePrerelease: Selected.IncludePrerelease, Kind, Language, OwnerId: String(Callback.from.id), Platform: 'telegram', Repository: Selected.Repository, TopicId: Selected.TopicId })
       if (Activated !== undefined) {
         const Summary = Database.ActiveDestinationSummary()
-        Logger.info({ message: 'Active destination added', Destination: Activated, ActiveDestinationCount: Activated === 'telegram-chat' ? Summary.TelegramChats : Summary.TelegramUsers })
+        const ActiveDestinationCount = Activated === 'telegram-chat' ? Summary.TelegramChats : Summary.TelegramUsers
+        Logger.info({ message: `Active destination added: ${Activated}, total=${ActiveDestinationCount}` })
       }
       Result = Selected.Action === 'dm-enable' ? 'dmEnabled' : 'subscribed'
     }
