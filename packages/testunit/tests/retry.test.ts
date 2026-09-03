@@ -88,6 +88,7 @@ test('identifies permanent destination errors for Telegram and Discord', () => {
   assert.equal(IsPermanentDestinationError(Object.assign(new Error('ETELEGRAM: 403 Forbidden: bot was blocked by the user'), { statusCode: 403 })), true)
   assert.equal(IsPermanentDestinationError(Object.assign(new Error('ETELEGRAM: 403 Forbidden: bot was kicked from the group chat'), { statusCode: 403 })), true)
   assert.equal(IsPermanentDestinationError(Object.assign(new Error('ETELEGRAM: 400 Bad Request: chat not found'), { statusCode: 400 })), true)
+  assert.equal(IsPermanentDestinationError(Object.assign(new Error('ETELEGRAM: 403 Forbidden: bot was blocked by the user'), { errorCode: 403 })), true)
   assert.equal(IsPermanentDestinationError(Object.assign(new Error('Cannot send messages to this user'), { code: 50007, status: 403 })), true)
   assert.equal(IsPermanentDestinationError(Object.assign(new Error('Unknown Channel'), { code: 10003, status: 404 })), true)
   assert.equal(IsPermanentDestinationError(new Error('Discord destination is unavailable')), true)

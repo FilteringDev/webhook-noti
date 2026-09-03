@@ -13,13 +13,13 @@ test('suppresses Discord embeds while preserving notification safety and length 
 
 test('disables Telegram link previews without adding a topic to regular messages', () => {
   assert.deepEqual(TelegramNotificationOptions(null), {
-    disable_web_page_preview: true
+    link_preview_options: { is_disabled: true }
   })
 })
 
 test('disables Telegram link previews while preserving the forum topic', () => {
   assert.deepEqual(TelegramNotificationOptions(123), {
     message_thread_id: 123,
-    disable_web_page_preview: true
+    link_preview_options: { is_disabled: true }
   })
 })

@@ -1,6 +1,6 @@
 import { Message, type Destination, type Language, type Repository } from '@webhook-noti/core'
-import { HttpsProxyAgent } from 'https-proxy-agent'
-import TelegramBot from 'node-telegram-bot-api'
+import { Bot, TelegramApiError, type InlineKeyboardMarkup, type SendMessageParams } from 'node-telegram-bot-api/node'
+import { ProxyAgent, type Dispatcher } from 'undici'
 import { RunGuarded } from './async-guard.js'
 import type { NotifierDatabase } from './database.js'
 import { IsTransientError, type PlatformNotifier } from './delivery.js'
@@ -15,6 +15,9 @@ function ObjectValue(Value: unknown): Record<string, unknown> | undefined {
 }
 
 export function PollingErrorDetails(CaughtError: unknown): { Code: string | undefined, Detail: string, Status: number | undefined } {
+  if (CaughtError instanceof TelegramApiError) {
+    return { Code: CaughtError.code, Detail: CaughtError.message, Status: CaughtError.errorCode }
+  }
   const ErrorValue = ObjectValue(CaughtError)
   const ResponseValue = ObjectValue(ErrorValue?.response)
   const Code = ErrorValue?.code
@@ -32,7 +35,7 @@ function ParseCommand(Text: string): { Command: string, Argument: string | undef
   return { Command: Command.replace(/@[^\s]+$/, '').toLowerCase(), Argument }
 }
 
-function Keyboard(Page: SelectionPage): TelegramBot.InlineKeyboardMarkup {
+function Keyboard(Page: SelectionPage): InlineKeyboardMarkup {
   return {
     inline_keyboard: [
       ...Page.Repositories.map((Repository, Index) => [{ text: `${Repository.Owner}/${Repository.Name}`, callback_data: `repository-select:${Page.Id}:${Index}` }]),
@@ -44,7 +47,7 @@ function Keyboard(Page: SelectionPage): TelegramBot.InlineKeyboardMarkup {
   }
 }
 
-function ForgetKeyboard(Id: string, Language: Language): TelegramBot.InlineKeyboardMarkup {
+function ForgetKeyboard(Id: string, Language: Language): InlineKeyboardMarkup {
   return {
     inline_keyboard: [[
       { text: Message(Language, 'forgetConfirm'), callback_data: `forget-confirm:${Id}` },
@@ -53,25 +56,31 @@ function ForgetKeyboard(Id: string, Language: Language): TelegramBot.InlineKeybo
   }
 }
 
-export function TelegramNotificationOptions(TopicId: number | null): TelegramBot.SendMessageOptions {
+export function TelegramNotificationOptions(TopicId: number | null): Pick<SendMessageParams, 'link_preview_options' | 'message_thread_id'> {
   return {
     ...(TopicId === null ? {} : { message_thread_id: TopicId }),
-    disable_web_page_preview: true
+    link_preview_options: { is_disabled: true }
   }
 }
 
 export function CreateTelegram(Token: string, Database: NotifierDatabase, ListRepositories: () => Repository[], ProxyUrl?: string): PlatformNotifier {
-  // @types/request's `Options` union requires a `url`/`uri` field that a bare `agent` override never needs.
-  const RequestOptions = ProxyUrl === undefined ? undefined : { agent: new HttpsProxyAgent(ProxyUrl) } as unknown as TelegramBot.ConstructorOptions['request']
-  const Bot = new TelegramBot(Token, {
-    polling: true,
-    ...(RequestOptions === undefined ? {} : { request: RequestOptions })
+  const ProxyDispatcher = ProxyUrl === undefined ? undefined : new ProxyAgent(ProxyUrl)
+  const Telegram = new Bot(Token, {
+    ...(ProxyDispatcher === undefined ? {} : {
+      // undici's fetch accepts a non-standard `dispatcher` init option; the lowercase name is its actual API contract.
+      // oxlint-disable-next-line crackle/pascal-case
+      fetch: (Url, Init) => fetch(Url, { ...Init, dispatcher: ProxyDispatcher } as RequestInit & { dispatcher: Dispatcher })
+    })
   })
   const Selector = new RepositorySelector(ListRepositories)
   const ForgetConfirmations = new ForgetConfirmation()
-  Bot.on('message', (Update) => {
+  Telegram.on('message', (Context) => {
     RunGuarded(async () => {
+    const Update = Context.message
+    if (Update === undefined) return
     if (Update.text === undefined || Update.from === undefined) return
+    const ChatId = Update.chat.id
+    const MessageThreadId = Update.message_thread_id
     const SenderId = Update.from.id
     const { Command, Argument } = ParseCommand(Update.text)
     if (!['/subscribe', '/unsubscribe', '/language', '/dm', '/routes', '/forget'].includes(Command)) return
@@ -79,11 +88,11 @@ export function CreateTelegram(Token: string, Database: NotifierDatabase, ListRe
       ? Argument === 'ko' ? 'ko' : 'en'
       : Database.LanguageFor('telegram', String(Update.from.id))
     async function Send(Text: string): Promise<void> {
-      await Bot.sendMessage(Update.chat.id, Text, { message_thread_id: Update.message_thread_id })
+      await Telegram.api.sendMessage({ chat_id: ChatId, text: Text, ...(MessageThreadId === undefined ? {} : { message_thread_id: MessageThreadId }) })
     }
     async function SendPermissionDenied(): Promise<void> {
       try {
-        await Bot.sendMessage(SenderId, Message(Language, 'forbidden'))
+        await Telegram.api.sendMessage({ chat_id: SenderId, text: Message(Language, 'forbidden') })
       } catch {}
     }
     if (Command === '/language') {
@@ -94,7 +103,7 @@ export function CreateTelegram(Token: string, Database: NotifierDatabase, ListRe
     const DirectMessage = Update.chat.type === 'private'
     if (Command === '/forget') {
       if (!DirectMessage) {
-        const Administrators = await Bot.getChatAdministrators(Update.chat.id)
+        const Administrators = await Telegram.api.getChatAdministrators({ chat_id: Update.chat.id })
         if (!Administrators.some((Administrator) => Administrator.user.id === Update.from?.id)) {
           await SendPermissionDenied()
           return
@@ -105,11 +114,11 @@ export function CreateTelegram(Token: string, Database: NotifierDatabase, ListRe
         ? { Platform: 'telegram', Type: 'dm', ExternalId }
         : { Platform: 'telegram', Type: 'chat', ExternalId }
       const Id = ForgetConfirmations.Create(String(Update.from.id), ExternalId, Scope)
-      await Bot.sendMessage(Update.chat.id, Message(Language, DirectMessage ? 'forgetDmWarning' : 'forgetChatWarning'), { message_thread_id: Update.message_thread_id, reply_markup: ForgetKeyboard(Id, Language) })
+      await Telegram.api.sendMessage({ chat_id: Update.chat.id, text: Message(Language, DirectMessage ? 'forgetDmWarning' : 'forgetChatWarning'), ...(Update.message_thread_id === undefined ? {} : { message_thread_id: Update.message_thread_id }), reply_markup: ForgetKeyboard(Id, Language) })
       return
     }
     if (!DirectMessage) {
-      const Administrators = await Bot.getChatAdministrators(Update.chat.id)
+      const Administrators = await Telegram.api.getChatAdministrators({ chat_id: Update.chat.id })
       if (!Administrators.some((Administrator) => Administrator.user.id === Update.from?.id)) {
         await SendPermissionDenied()
         return
@@ -130,11 +139,13 @@ export function CreateTelegram(Token: string, Database: NotifierDatabase, ListRe
     const TopicId = Update.message_thread_id ?? null
     const Action = Command === '/unsubscribe' ? 'unsubscribe' : Command === '/dm' ? 'dm-enable' : 'subscribe'
     const Page = Selector.Create({ Action, ExternalId, IncludePrerelease: false, OwnerId: String(Update.from.id), SourceId: ExternalId, TopicId })
-      await Bot.sendMessage(Update.chat.id, 'Select a repository.', { message_thread_id: TopicId ?? undefined, reply_markup: Keyboard(Page) })
+      await Telegram.api.sendMessage({ chat_id: Update.chat.id, text: 'Select a repository.', ...(TopicId === null ? {} : { message_thread_id: TopicId }), reply_markup: Keyboard(Page) })
     }, (CaughtError) => Logger.error({ message: 'Telegram message handler failed', Error: CaughtError }))
   })
-  Bot.on('callback_query', (Callback) => {
+  Telegram.on('callback_query', (TelegramContext) => {
     RunGuarded(async () => {
+    const Callback = TelegramContext.callbackQuery
+    if (Callback === undefined) return
     if (Callback.message === undefined || Callback.data === undefined) return
     const [Operation, Id, Index] = Callback.data.split(':', 3)
     if (Operation === 'forget-confirm' || Operation === 'forget-cancel') {
@@ -142,49 +153,49 @@ export function CreateTelegram(Token: string, Database: NotifierDatabase, ListRe
       const ExternalId = String(MessageValue.chat.id)
       const Language = Database.LanguageFor('telegram', String(Callback.from.id))
       if (Operation === 'forget-confirm' && MessageValue.chat.type !== 'private') {
-        const Administrators = await Bot.getChatAdministrators(MessageValue.chat.id)
+        const Administrators = await Telegram.api.getChatAdministrators({ chat_id: MessageValue.chat.id })
         if (!Administrators.some((Administrator) => Administrator.user.id === Callback.from.id)) {
-          await Bot.answerCallbackQuery(Callback.id, { text: Message(Language, 'forbidden'), show_alert: true })
+          await Telegram.api.answerCallbackQuery({ callback_query_id: Callback.id, text: Message(Language, 'forbidden'), show_alert: true })
           return
         }
       }
       const Scope = Id === undefined ? null : ForgetConfirmations.Take(Id, String(Callback.from.id), ExternalId)
-      if (Scope === null || Scope.Platform !== 'telegram') await Bot.editMessageText(Message(Language, 'forgetExpired'), { chat_id: MessageValue.chat.id, message_id: MessageValue.message_id })
-      else if (Operation === 'forget-cancel') await Bot.editMessageText(Message(Language, 'forgetCancelled'), { chat_id: MessageValue.chat.id, message_id: MessageValue.message_id })
+      if (Scope === null || Scope.Platform !== 'telegram') await Telegram.api.editMessageText({ chat_id: MessageValue.chat.id, message_id: MessageValue.message_id, text: Message(Language, 'forgetExpired') })
+      else if (Operation === 'forget-cancel') await Telegram.api.editMessageText({ chat_id: MessageValue.chat.id, message_id: MessageValue.message_id, text: Message(Language, 'forgetCancelled') })
       else {
         if (Scope.Type === 'dm') Database.ForgetDirectMessage('telegram', Scope.ExternalId)
         else Database.ForgetTelegramChat(Scope.ExternalId)
-        await Bot.editMessageText(Message(Language, 'forgotten'), { chat_id: MessageValue.chat.id, message_id: MessageValue.message_id })
+        await Telegram.api.editMessageText({ chat_id: MessageValue.chat.id, message_id: MessageValue.message_id, text: Message(Language, 'forgotten') })
       }
-      await Bot.answerCallbackQuery(Callback.id)
+      await Telegram.api.answerCallbackQuery({ callback_query_id: Callback.id })
       return
     }
     if (Id === undefined || !['repository-select', 'repository-previous', 'repository-next'].includes(Operation ?? '')) return
     const MessageValue = Callback.message
     const ExternalId = String(MessageValue.chat.id)
-    const TopicId = MessageValue.message_thread_id ?? null
-    const Context = { OwnerId: String(Callback.from.id), SourceId: ExternalId, TopicId }
+    const TopicId = 'message_thread_id' in MessageValue ? MessageValue.message_thread_id ?? null : null
+    const SelectionContext = { OwnerId: String(Callback.from.id), SourceId: ExternalId, TopicId }
     const Language = Database.LanguageFor('telegram', String(Callback.from.id))
     const DirectMessage = MessageValue.chat.type === 'private'
     if (!DirectMessage) {
-      const Administrators = await Bot.getChatAdministrators(MessageValue.chat.id)
+      const Administrators = await Telegram.api.getChatAdministrators({ chat_id: MessageValue.chat.id })
       if (!Administrators.some((Administrator) => Administrator.user.id === Callback.from.id)) {
-        await Bot.answerCallbackQuery(Callback.id, { text: Message(Language, 'forbidden'), show_alert: true })
+        await Telegram.api.answerCallbackQuery({ callback_query_id: Callback.id, text: Message(Language, 'forbidden'), show_alert: true })
         return
       }
     }
     if (Operation === 'repository-previous' || Operation === 'repository-next') {
-      const Page = Operation === 'repository-previous' ? Selector.Previous(Id, Context) : Selector.Next(Id, Context)
-      if (Page === null) await Bot.answerCallbackQuery(Callback.id, { text: Message(Language, 'selectionExpired'), show_alert: true })
+      const Page = Operation === 'repository-previous' ? Selector.Previous(Id, SelectionContext) : Selector.Next(Id, SelectionContext)
+      if (Page === null) await Telegram.api.answerCallbackQuery({ callback_query_id: Callback.id, text: Message(Language, 'selectionExpired'), show_alert: true })
       else {
-        await Bot.editMessageReplyMarkup(Keyboard(Page), { chat_id: MessageValue.chat.id, message_id: MessageValue.message_id })
-        await Bot.answerCallbackQuery(Callback.id)
+        await Telegram.api.editMessageReplyMarkup({ chat_id: MessageValue.chat.id, message_id: MessageValue.message_id, reply_markup: Keyboard(Page) })
+        await Telegram.api.answerCallbackQuery({ callback_query_id: Callback.id })
       }
       return
     }
-    const Selected = Selector.Select(Id, Context, Index ?? '')
+    const Selected = Selector.Select(Id, SelectionContext, Index ?? '')
     if (Selected === null) {
-      await Bot.answerCallbackQuery(Callback.id, { text: Message(Language, 'selectionExpired'), show_alert: true })
+      await Telegram.api.answerCallbackQuery({ callback_query_id: Callback.id, text: Message(Language, 'selectionExpired'), show_alert: true })
       return
     }
     let Result: Parameters<typeof Message>[1]
@@ -199,26 +210,28 @@ export function CreateTelegram(Token: string, Database: NotifierDatabase, ListRe
       }
       Result = Selected.Action === 'dm-enable' ? 'dmEnabled' : 'subscribed'
     }
-    await Bot.editMessageText(Message(Language, Result), { chat_id: MessageValue.chat.id, message_id: MessageValue.message_id })
-      await Bot.answerCallbackQuery(Callback.id)
+    await Telegram.api.editMessageText({ chat_id: MessageValue.chat.id, message_id: MessageValue.message_id, text: Message(Language, Result) })
+      await Telegram.api.answerCallbackQuery({ callback_query_id: Callback.id })
     }, (CaughtError) => Logger.error({ message: 'Telegram callback query handler failed', Error: CaughtError }))
   })
-  let PollingFailures = 0
-  Bot.on('polling_error', (CaughtError) => {
-    PollingFailures += 1
+  Telegram.catch((CaughtError) => {
     const Details = PollingErrorDetails(CaughtError)
     const Hint = Details.Status === 401
       ? 'Check the Telegram bot token.'
       : Details.Status === 409
         ? 'The library removed any configured webhook and will retry. Ensure no other bot instance uses this token.'
         : undefined
-    const Log = { Attempt: PollingFailures, ...Details, ...(Hint === undefined ? {} : { Hint }) }
-    if (IsTransientError(CaughtError)) Logger.warn({ message: 'Telegram polling failed; retrying', ...Log })
-    else Logger.error({ message: 'Telegram polling was rejected; retrying', ...Log })
+    const Log = { ...Details, ...(Hint === undefined ? {} : { Hint }) }
+    if (IsTransientError(CaughtError)) Logger.warn({ message: 'Telegram update failed', ...Log })
+    else Logger.error({ message: 'Telegram update was rejected', ...Log })
   })
+  RunGuarded(() => Telegram.startPolling(), (CaughtError) => Logger.error({ message: 'Telegram polling stopped', Error: CaughtError }))
   return {
     async Send(Destination, Content): Promise<void> {
-      await Bot.sendMessage(Destination.ExternalId, Content.slice(0, 4_096), TelegramNotificationOptions(Destination.TopicId))
+      await Telegram.api.sendMessage({ chat_id: Destination.ExternalId, text: Content.slice(0, 4_096), ...TelegramNotificationOptions(Destination.TopicId) })
+    },
+    Stop(): void {
+      Telegram.stop()
     }
   }
 }

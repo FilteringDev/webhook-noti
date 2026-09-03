@@ -20,6 +20,7 @@ const TransientNetworkCodes = new Set([
 
 export interface PlatformNotifier {
   Send(Destination: Destination, Content: string): Promise<void>
+  Stop?(): void
 }
 
 function ObjectValue(Value: unknown): Record<string, unknown> | undefined {
@@ -29,7 +30,7 @@ function ObjectValue(Value: unknown): Record<string, unknown> | undefined {
 function StatusCode(CaughtError: unknown): number | undefined {
   const ErrorValue = ObjectValue(CaughtError)
   const ResponseValue = ObjectValue(ErrorValue?.response)
-  const Value = ErrorValue?.statusCode ?? ErrorValue?.status ?? ResponseValue?.statusCode ?? ResponseValue?.status
+  const Value = ErrorValue?.statusCode ?? ErrorValue?.status ?? ErrorValue?.errorCode ?? ResponseValue?.statusCode ?? ResponseValue?.status
   return typeof Value === 'number' ? Value : undefined
 }
 

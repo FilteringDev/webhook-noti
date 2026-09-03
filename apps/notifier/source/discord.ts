@@ -1,6 +1,6 @@
 import { Message, type Destination, type Repository } from '@webhook-noti/core'
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, Events, GatewayIntentBits, MessageFlags, PermissionFlagsBits, SlashCommandBuilder, StringSelectMenuBuilder, type GuildMember, type Interaction, type MessageCreateOptions } from 'discord.js'
-import type { Dispatcher } from 'undici'
+import { ProxyAgent, type Dispatcher } from 'undici-v6'
 import { RunGuarded } from './async-guard.js'
 import type { NotifierDatabase } from './database.js'
 import type { PlatformNotifier } from './delivery.js'
@@ -52,7 +52,8 @@ export function DiscordNotificationPayload(Content: string): MessageCreateOption
   }
 }
 
-export function CreateDiscord(Token: string, Database: NotifierDatabase, ListRepositories: () => Repository[], ProxyDispatcher?: Dispatcher): PlatformNotifier {
+export function CreateDiscord(Token: string, Database: NotifierDatabase, ListRepositories: () => Repository[], ProxyUrl?: string): PlatformNotifier {
+  const ProxyDispatcher: Dispatcher | undefined = ProxyUrl === undefined ? undefined : new ProxyAgent(ProxyUrl)
   const DiscordClient = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.DirectMessages],
     ...(ProxyDispatcher === undefined ? {} : { rest: { agent: ProxyDispatcher } })
