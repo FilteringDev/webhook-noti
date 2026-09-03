@@ -16,7 +16,6 @@
     "@webhook-noti/core": "workspace:*",
     "consola": "^3.4.2",
     "discord.js": "^14.27.0",
-    "global-agent": "^4.1.3",
     "https-proxy-agent": "^9.1.0",
     "node-telegram-bot-api": "^2.1.0",
     "socks": "^2.8.9",
@@ -26,7 +25,6 @@
     "undici-v6": "npm:undici@^6.28.0"
   },
   "devDependencies": {
-    "@types/global-agent": "^3.0.0",
     "@types/sql.js": "^1.4.11"
   }
 }

@@ -39,7 +39,12 @@ export class GithubClient {
   private readonly InstallationClients = new Map<number, CachedClient>()
 
   constructor(AppId: string, PrivateKey: string, private readonly ProxyDispatcher?: Dispatcher) {
-    this.AppAuth = createAppAuth({ appId: AppId, privateKey: PrivateKey })
+    const RequestClient = new Octokit(this.ProxyDispatcher === undefined ? {} : { request: { fetch: this.ProxyFetch() } })
+    this.AppAuth = createAppAuth({ appId: AppId, privateKey: PrivateKey, request: RequestClient.request })
+  }
+
+  private ProxyFetch(): (Url: string | URL | Request, Init?: RequestInit) => Promise<Response> {
+    return async (Url, Init) => fetch(Url, { ...Init, dispatcher: this.ProxyDispatcher } as RequestInit & { dispatcher: Dispatcher })
   }
 
   private CreateClient(Token: string): Octokit {
@@ -49,7 +54,7 @@ export class GithubClient {
         request: {
           // undici's fetch accepts a non-standard `dispatcher` init option; the lowercase name is its actual API contract.
           // oxlint-disable-next-line crackle/pascal-case
-          fetch: async (Url: string | URL | Request, Init?: RequestInit) => fetch(Url, { ...Init, dispatcher: this.ProxyDispatcher } as RequestInit & { dispatcher: Dispatcher })
+          fetch: this.ProxyFetch()
         }
       })
     })

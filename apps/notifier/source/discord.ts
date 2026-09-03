@@ -223,7 +223,7 @@ export function CreateDiscord(Token: string, Database: NotifierDatabase, ListRep
     if (Interaction.deferred) await Interaction.editReply({ content: '', components: Components(Page) })
     else await Interaction.reply({ components: Components(Page), flags: MessageFlags.Ephemeral })
   }
-  void DiscordClient.login(Token)
+  void DiscordClient.login(Token).catch((CaughtError) => Logger.error({ message: 'Discord client login failed', Error: CaughtError }))
   return {
     async Send(Destination, Content): Promise<void> {
       const Payload = DiscordNotificationPayload(Content)

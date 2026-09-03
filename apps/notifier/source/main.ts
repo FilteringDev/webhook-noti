@@ -1,6 +1,7 @@
 import { SafeReleaseMessage, RepositorySlug, type Release } from '@webhook-noti/core'
-import { bootstrap } from 'global-agent'
 import { createServer } from 'node:http'
+import Https from 'node:https'
+import { HttpsProxyAgent } from 'https-proxy-agent'
 import { ProxyAgent } from 'undici'
 import { NotifierDatabase } from './database.js'
 import { Deliver, type PlatformNotifier } from './delivery.js'
@@ -27,13 +28,9 @@ async function Bootstrap(): Promise<void> {
     const SocksBridge = Config.SocksProxyUrl === undefined ? undefined : await StartSocksBridge(Config.SocksProxyUrl)
     const ProxyDispatcher = SocksBridge === undefined ? undefined : new ProxyAgent(SocksBridge.Url)
     if (SocksBridge !== undefined) {
-      // Routes the Discord Gateway WebSocket login through the bridge too, since @discordjs/ws has no direct proxy hook.
-      bootstrap()
-      // global-agent's contract requires this exact casing (globalThis.GLOBAL_AGENT.{HTTP,HTTPS}_PROXY).
+      // @discordjs/ws has no direct proxy hook, so provide its ws package with a standard CONNECT agent.
       /* oxlint-disable crackle/pascal-case */
-      const GlobalAgentConfig = (globalThis as unknown as { GLOBAL_AGENT: { HTTP_PROXY: string | null, HTTPS_PROXY: string | null } }).GLOBAL_AGENT
-      GlobalAgentConfig.HTTP_PROXY = SocksBridge.Url
-      GlobalAgentConfig.HTTPS_PROXY = SocksBridge.Url
+      ;(Https as unknown as { globalAgent: HttpsProxyAgent<string> }).globalAgent = new HttpsProxyAgent(SocksBridge.Url)
       /* oxlint-enable crackle/pascal-case */
       Logger.info({ message: 'SOCKS proxy bridge started' })
     }

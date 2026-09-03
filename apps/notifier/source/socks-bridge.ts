@@ -39,7 +39,7 @@ function DestroySocket(SocketValue: Socket): void {
 }
 
 // Bridges local HTTP CONNECT tunnels onto an upstream SOCKS proxy, so any client that only
-// knows how to speak HTTP-proxy (undici ProxyAgent, https-proxy-agent, global-agent) can be
+// knows how to speak HTTP-proxy (undici ProxyAgent and https-proxy-agent) can be
 // routed through a SOCKS5 upstream.
 export async function StartSocksBridge(ProxyUrl: string): Promise<SocksBridge> {
   const Proxy = ParseSocksProxyUrl(ProxyUrl)
