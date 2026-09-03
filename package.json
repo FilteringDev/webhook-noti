@@ -13,9 +13,9 @@
     "test": "pnpm --filter @webhook-noti/testunit run test"
   },
   "devDependencies": {
-    "@types/node": "^24.5.2",
-    "oxlint": "^1.17.0",
+    "@types/node": "^24.13.3",
+    "oxlint": "^1.81.0",
     "oxlint-tsgolint": "^7.0.2001",
-    "typescript": "^5.9.2"
+    "typescript": "^7.0.2"
   }
 }
