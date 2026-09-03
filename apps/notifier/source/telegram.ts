@@ -1,6 +1,6 @@
 import { Message, type Destination, type Language, type Repository } from '@webhook-noti/core'
 import { Bot, TelegramApiError, type InlineKeyboardMarkup, type SendMessageParams } from 'node-telegram-bot-api/node'
-import { ProxyAgent, type Dispatcher } from 'undici'
+import { fetch as UndiciFetch, ProxyAgent } from 'undici'
 import { RunGuarded } from './async-guard.js'
 import type { NotifierDatabase } from './database.js'
 import { IsTransientError, type PlatformNotifier } from './delivery.js'
@@ -67,9 +67,10 @@ export function CreateTelegram(Token: string, Database: NotifierDatabase, ListRe
   const ProxyDispatcher = ProxyUrl === undefined ? undefined : new ProxyAgent(ProxyUrl)
   const Telegram = new Bot(Token, {
     ...(ProxyDispatcher === undefined ? {} : {
-      // undici's fetch accepts a non-standard `dispatcher` init option; the lowercase name is its actual API contract.
+      // Must dispatch through undici's own fetch; global fetch's handler protocol is incompatible
+      // with a dispatcher built from the standalone undici package.
       // oxlint-disable-next-line crackle/pascal-case
-      fetch: (Url, Init) => fetch(Url, { ...Init, dispatcher: ProxyDispatcher } as RequestInit & { dispatcher: Dispatcher })
+      fetch: (Url, Init) => UndiciFetch(Url as string | URL, { ...Init, dispatcher: ProxyDispatcher } as Parameters<typeof UndiciFetch>[1]) as unknown as ReturnType<typeof fetch>
     })
   })
   const Selector = new RepositorySelector(ListRepositories)

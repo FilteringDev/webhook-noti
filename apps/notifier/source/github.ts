@@ -1,7 +1,7 @@
 import { createAppAuth } from '@octokit/auth-app'
 import { Octokit } from '@octokit/rest'
 import type { ReferenceKind, ReferenceResolver, Repository } from '@webhook-noti/core'
-import type { Dispatcher } from 'undici'
+import { fetch as UndiciFetch, type Dispatcher } from 'undici'
 
 /* oxlint-disable crackle/pascal-case */
 
@@ -44,7 +44,9 @@ export class GithubClient {
   }
 
   private ProxyFetch(): (Url: string | URL | Request, Init?: RequestInit) => Promise<Response> {
-    return async (Url, Init) => fetch(Url, { ...Init, dispatcher: this.ProxyDispatcher } as RequestInit & { dispatcher: Dispatcher })
+    // Must dispatch through undici's own fetch, not the global fetch, since global fetch's internal
+    // handler protocol is incompatible with a dispatcher built from the standalone undici package.
+    return async (Url, Init) => UndiciFetch(Url as string | URL, { ...Init, dispatcher: this.ProxyDispatcher } as Parameters<typeof UndiciFetch>[1]) as unknown as Promise<Response>
   }
 
   private CreateClient(Token: string): Octokit {
